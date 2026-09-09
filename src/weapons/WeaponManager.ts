@@ -65,7 +65,7 @@ export class WeaponManager {
       reserveAmmo: 120,
       damage: 48,
       idleOffset: new THREE.Vector3(0.18, -0.20, -0.26),
-      adsOffset: new THREE.Vector3(0.0, -0.142, -0.18),
+      adsOffset: new THREE.Vector3(0.0, -0.099, -0.18), // -0.142 sight height x 0.68 scale
       recoilForce: { posZ: 0.052, rotX: 0.08, camPitch: 0.026, camYaw: 0.012, spray: 'ak' },
       reloadTime: 2.0,
       reloadStyle: 'mag'

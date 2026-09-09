@@ -72,16 +72,18 @@ body, html {
   left: 50%;
   width: 3px;
   height: 3px;
-  background-color: rgba(255, 255, 255, 0.85);
+  background-color: rgba(255, 255, 255, 0.95);
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  box-shadow: 0 0 4px rgba(0, 229, 255, 0.8);
+  /* Dark halo, not a coloured glow: keeps the reticle readable on light ground
+     and on the sky without tinting it. */
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
 }
 
 .reticle-line {
   position: absolute;
-  background-color: rgba(0, 229, 255, 0.85);
-  box-shadow: 0 0 6px rgba(0, 229, 255, 0.5);
+  background-color: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
   transition: all 0.08s ease;
 }
 

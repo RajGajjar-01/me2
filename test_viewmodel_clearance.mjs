@@ -9,7 +9,7 @@ const NEAR = 0.05;
 const rigRearZ = (scale, offsetZ, rawMaxZ) => rawMaxZ * scale + offsetZ;
 
 const weapons = [
-  { name: 'AK-47',        scale: 1.0,  offsetZ: -0.48, rawMaxZ: 0.5,   ads: -0.18, idle: -0.26 },
+  { name: 'AK-47',        scale: 0.68, offsetZ: -0.40, rawMaxZ: 0.5,   ads: -0.18, idle: -0.26 },
   { name: 'BREACHER 12G', scale: 0.38, offsetZ: -0.36, rawMaxZ: 0.89,  ads: -0.16, idle: -0.24 }
 ];
 

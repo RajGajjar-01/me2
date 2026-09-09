@@ -83,11 +83,14 @@ export class WeaponModels {
       }
     });
 
-    // The GLB's origin is the gun's centre, so its stock butt sits at +0.5 on Z —
-    // i.e. behind the camera once the viewmodel is pulled in for ADS, which slices
-    // the mesh against the near plane. Shift the model forward so the butt lands
-    // just in front of the eye with room to spare for the ADS pull and reload dip.
-    akScene.position.z = -0.48;
+    // The GLB is a full-size 1m rifle whose origin is its centre, so the stock butt
+    // sits at +0.5 on Z. Left there it ends up behind the camera at ADS and the mesh
+    // gets sliced open by the near plane; shifted forward at full size it clears the
+    // plane but the stock then fills half the screen at hipfire. So it is scaled to
+    // viewmodel size and set back until the butt sits ~0.3m from the eye — visible
+    // and in frame, but not in your face, and clear of the near plane in every state.
+    akScene.scale.setScalar(0.68);
+    akScene.position.z = -0.40;
     root.add(akScene);
 
     // The procedural block-glove arms were shaped around the procedural AK; against
@@ -100,7 +103,7 @@ export class WeaponModels {
     root.add(rightArm);
 
     // Muzzle flash positioned at barrel tip
-    const muzzlePos = new THREE.Vector3(0, 0.08, -0.98); // barrel tip after the shift
+    const muzzlePos = new THREE.Vector3(0, 0.054, -0.74); // barrel tip after scale + shift
     const { muzzleFlash, flashLight } = this.createMuzzleFlash(muzzlePos);
     root.add(muzzleFlash);
 
