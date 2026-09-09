@@ -14,3 +14,5 @@
 | File | Source | License |
 |---|---|---|
 | ../models/shotgun.glb | "Shotgun Double Barrel" by CreativeTrio — https://poly.pizza/m/k0fA37Awl8 | CC0 |
+| ../models/character.glb | Mixamo soldier, shipped as `examples/models/gltf/Soldier.glb` in the three.js repo and credited there to https://www.mixamo.com/ | Mixamo/Adobe terms — royalty-free for use, but redistribution is restricted; replace before shipping commercially |
+| ../models/hands/rigged_hand.glb | Rigged hand by J-Toastie — https://www.get3dmodels.com/anatomy/rigged-hand/ (also listed on poly.pizza as "Rigged Fps Arms") | CC-BY — **attribution to J-Toastie required** |

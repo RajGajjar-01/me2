@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { SoundEngine } from '../audio/SoundEngine';
 import { MODELS } from '../assets';
@@ -32,6 +33,9 @@ export interface DummyEntity {
 export class DummyManager {
   public dummies: DummyEntity[] = [];
   public hitboxMeshes: THREE.Mesh[] = [];
+
+  /** Idle-animation mixer per dummy id; empty until the character GLB loads. */
+  private mixers: Map<number, THREE.AnimationMixer> = new Map();
 
   private hitMat = new THREE.MeshBasicMaterial({
     visible: false,
@@ -208,6 +212,7 @@ export class DummyManager {
   public async loadCharacterModel(): Promise<void> {
     try {
       const loader = new GLTFLoader();
+      loader.setMeshoptDecoder(MeshoptDecoder);
       const gltf = await loader.loadAsync(MODELS.character);
 
       // Compute bounding box and normalize scale to 1.8m
@@ -237,6 +242,18 @@ export class DummyManager {
           dummy.modelGroup.remove(dummy.modelGroup.children[0]);
         }
         dummy.modelGroup.add(cloned);
+
+        // Drive the character's idle clip so targets read as living opponents
+        // standing on the range rather than mannequins frozen in a T-pose.
+        const idle =
+          THREE.AnimationClip.findByName(gltf.animations, 'Idle') ?? gltf.animations[0];
+        if (idle) {
+          const mixer = new THREE.AnimationMixer(cloned);
+          mixer.clipAction(idle).play();
+          // Desynchronise, or every dummy breathes in perfect lockstep.
+          mixer.setTime(Math.random() * idle.duration);
+          this.mixers.set(dummy.id, mixer);
+        }
       });
     } catch (err) {
       console.warn('Using procedural tactical combat dummies fallback:', err);
@@ -302,6 +319,11 @@ export class DummyManager {
     const damping = 12;
 
     this.dummies.forEach((dummy) => {
+      // 0. Idle animation — frozen once the dummy is down, so the ragdoll collapse
+      // is not fought by a character still calmly breathing.
+      const mixer = this.mixers.get(dummy.id);
+      if (mixer && !dummy.isDead) mixer.update(delta);
+
       // 1. Lateral Patrol Movement
       if (dummy.patrolSpeed && dummy.patrolMinX !== undefined && dummy.patrolMaxX !== undefined && !dummy.isDead) {
         dummy.root.position.x += (dummy.patrolDir || 1) * dummy.patrolSpeed * delta;
