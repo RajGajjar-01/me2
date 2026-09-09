@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { TextureGenerator } from '../utils/TextureGenerator';
 
 export interface WeaponRig {
@@ -11,6 +12,21 @@ export interface WeaponRig {
   leftArm: THREE.Group;
   rightArm: THREE.Group;
 }
+
+/**
+ * A loaded hand GLB, handed in from WeaponManager once so every rig can clone it
+ * rather than re-fetching. `clip` is the model's own grasp animation, if it has one.
+ */
+export interface HandAsset {
+  scene: THREE.Object3D;
+  clip?: THREE.AnimationClip;
+}
+
+// TODO: move to src/assets.ts — off-limits for this change (owned by another agent).
+// Source: https://www.get3dmodels.com/anatomy/rigged-hand/ (mirrors J-Toastie's
+// "Rigged Fps Arms" hand, also listed on poly.pizza). CC-BY licence — credit J-Toastie.
+// Rigged (20 finger joints), 1 grasp animation clip, ~89KB, no textures (flat PBR).
+export const HAND_MODEL_PATH = '/models/hands/rigged_hand.glb';
 
 export class WeaponModels {
   // Advanced PBR Materials
@@ -60,11 +76,21 @@ export class WeaponModels {
     color: 0x22ff55
   });
 
+  // The source hand GLB ships untextured (flat grey) — tint it a plausible skin
+  // tone. DoubleSide because the mirrored (left) hand instance flips triangle
+  // winding via a negative X scale.
+  private static handSkinMat = new THREE.MeshStandardMaterial({
+    color: 0xc9906c,
+    roughness: 0.55,
+    metalness: 0.0,
+    side: THREE.DoubleSide
+  });
+
   /**
    * Builds the Authentic 3D Real AK-47 Rig using imported photorealistic GLB asset.
    * Seamlessly binds tactical operator hands, calibrated ADS sightline, and muzzle VFX.
    */
-  public static createRealAKRig(akScene: THREE.Group): WeaponRig {
+  public static createRealAKRig(akScene: THREE.Group, handAsset?: HandAsset): WeaponRig {
     const root = new THREE.Group();
 
     // Enable high-definition shadows and refine PBR material response
@@ -86,24 +112,39 @@ export class WeaponModels {
     // The GLB is a full-size 1m rifle whose origin is its centre, so the stock butt
     // sits at +0.5 on Z. Left there it ends up behind the camera at ADS and the mesh
     // gets sliced open by the near plane; shifted forward at full size it clears the
-    // plane but the stock then fills half the screen at hipfire. So it is scaled to
-    // viewmodel size and set back until the butt sits ~0.3m from the eye — visible
-    // and in frame, but not in your face, and clear of the near plane in every state.
-    akScene.scale.setScalar(0.68);
-    akScene.position.z = -0.40;
+    // plane but the stock then fills half the screen at hipfire. So it is scaled up
+    // for a tighter, more-in-frame FPV hipfire read and set back further than before
+    // to compensate — the bigger scale is what makes it read as "zoomed in", not
+    // proximity to the eye, which keeps the near-plane margin intact.
+    akScene.scale.setScalar(0.88);
+    akScene.position.z = -0.53;
     root.add(akScene);
 
-    // The procedural block-glove arms were shaped around the procedural AK; against
-    // the imported model they read as a box floating beside the gun, so they are
-    // built (the reload animation still drives them) but not drawn.
-    const { leftArm, rightArm } = this.createAKArms();
-    leftArm.visible = false;
-    rightArm.visible = false;
+    // Real hands wrap the grip and handguard when the hand GLB loaded; otherwise
+    // fall back to the old procedural block-glove arms (built either way so the
+    // reload animation always has something to drive).
+    let leftArm: THREE.Group;
+    let rightArm: THREE.Group;
+    if (handAsset) {
+      leftArm = new THREE.Group();
+      rightArm = new THREE.Group();
+      // Right hand on the pistol grip (just behind the magwell); left hand under
+      // the handguard/forend. Estimated from the AK's raw bounding box and typical
+      // AK layout (this GLB has no named sub-parts to anchor to directly).
+      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.011, -0.066, -0.477), 0, 0.16);
+      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.004, -0.026, -0.776), Math.PI / 2, 0.18);
+    } else {
+      const arms = this.createAKArms();
+      leftArm = arms.leftArm;
+      rightArm = arms.rightArm;
+      leftArm.visible = false;
+      rightArm.visible = false;
+    }
     root.add(leftArm);
     root.add(rightArm);
 
     // Muzzle flash positioned at barrel tip
-    const muzzlePos = new THREE.Vector3(0, 0.054, -0.74); // barrel tip after scale + shift
+    const muzzlePos = new THREE.Vector3(0, 0.070, -0.97); // barrel tip after scale + shift
     const { muzzleFlash, flashLight } = this.createMuzzleFlash(muzzlePos);
     root.add(muzzleFlash);
 
@@ -122,7 +163,7 @@ export class WeaponModels {
    * Builds the Authentic 3D Real Tactical Silenced Ghost Sidearm Rig using imported GLB asset.
    * Calibrates tactical two-handed grip, suppressed muzzle alignment, and matte PBR finishes.
    */
-  public static createRealPistolRig(pistolScene: THREE.Group): WeaponRig {
+  public static createRealPistolRig(pistolScene: THREE.Group, handAsset?: HandAsset): WeaponRig {
     const root = new THREE.Group();
 
     // Clean up Blender camera and light nodes
@@ -151,8 +192,19 @@ export class WeaponModels {
     pistolScene.position.set(0, -0.038, -0.03);
     root.add(pistolScene);
 
-    // Operator Arms holding tactical sidearm
-    const { leftArm, rightArm } = this.createPistolArms();
+    // Real hands, or the procedural block-glove fallback at the same anchor points.
+    let leftArm: THREE.Group;
+    let rightArm: THREE.Group;
+    if (handAsset) {
+      leftArm = new THREE.Group();
+      rightArm = new THREE.Group();
+      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.01, -0.06, 0.06), 0, 0.15);
+      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.02, -0.068, 0.05), Math.PI / 2, 0.16);
+    } else {
+      const arms = this.createPistolArms();
+      leftArm = arms.leftArm;
+      rightArm = arms.rightArm;
+    }
     root.add(leftArm);
     root.add(rightArm);
 
@@ -177,7 +229,7 @@ export class WeaponModels {
    * The source model ships ~2.07m long on its local Z, so it is scaled and re-oriented
    * inside a holder group to sit in the operator's two-handed grip pointing down -Z.
    */
-  public static createRealShotgunRig(shotgunScene: THREE.Group): WeaponRig {
+  public static createRealShotgunRig(shotgunScene: THREE.Group, handAsset?: HandAsset): WeaponRig {
     const root = new THREE.Group();
 
     shotgunScene.traverse((child) => {
@@ -204,11 +256,22 @@ export class WeaponModels {
     holder.position.set(-0.011, 0.03, -0.36); // keeps the butt in front of the near plane
     root.add(holder);
 
-    // Same as the AK: arms exist for the reload animation but are not drawn, since
-    // the block gloves do not line up with this model's forend.
-    const { leftArm, rightArm } = this.createAKArms();
-    leftArm.visible = false;
-    rightArm.visible = false;
+    // Real hands at the same grip/forend anchors used for the AK (both rigs share
+    // similar proportions), or the procedural fallback hidden as before.
+    let leftArm: THREE.Group;
+    let rightArm: THREE.Group;
+    if (handAsset) {
+      leftArm = new THREE.Group();
+      rightArm = new THREE.Group();
+      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.011, -0.066, -0.477), 0, 0.16);
+      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.004, -0.026, -0.776), Math.PI / 2, 0.18);
+    } else {
+      const arms = this.createAKArms();
+      leftArm = arms.leftArm;
+      rightArm = arms.rightArm;
+      leftArm.visible = false;
+      rightArm.visible = false;
+    }
     root.add(leftArm);
     root.add(rightArm);
 
@@ -510,6 +573,78 @@ export class WeaponModels {
       leftArm,
       rightArm
     };
+  }
+
+  /**
+   * Clones the shared hand GLB (skinned meshes need SkeletonUtils.clone, a plain
+   * Object3D.clone breaks the skeleton binding) and normalizes it to a real hand
+   * size — the source file's units don't come out to meters directly, so this
+   * measures the actual rendered bounding box and scales to a target length
+   * instead of trusting a guessed constant.
+   */
+  private static createHandInstance(hand: HandAsset, mirror: boolean): THREE.Object3D {
+    const inst = cloneSkinned(hand.scene) as THREE.Object3D;
+    inst.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (m.isMesh) {
+        m.material = this.handSkinMat;
+        m.castShadow = true;
+        m.receiveShadow = true;
+      }
+    });
+
+    const size = new THREE.Vector3();
+    new THREE.Box3().setFromObject(inst).getSize(size);
+    const longest = Math.max(size.x, size.y, size.z) || 1;
+    const HAND_LENGTH = 0.17; // average adult hand, wrist to fingertip, in metres
+    const s = HAND_LENGTH / longest;
+    inst.scale.setScalar(s);
+    if (mirror) inst.scale.x *= -1; // right-hand asset -> left hand
+
+    // Bake a partial grip pose from the model's own grasp clip (if it shipped one)
+    // instead of leaving fingers flat open, then discard the mixer — the hands
+    // are posed once at rig-build time, not animated live every frame.
+    if (hand.clip) {
+      const mixer = new THREE.AnimationMixer(inst);
+      const action = mixer.clipAction(hand.clip);
+      action.play();
+      mixer.update(hand.clip.duration * 0.35);
+      mixer.stopAllAction();
+    }
+
+    // Measured from the source file's raw POSITION accessor: local +X runs along
+    // the fingers. Point that down the barrel (-Z) so the hand reads as wrapped
+    // around the gun rather than lying flat across it.
+    inst.rotation.y = Math.PI / 2;
+
+    return inst;
+  }
+
+  /**
+   * Adds a hand at `position` (in the owning arm group's local space) plus a short
+   * tapered forearm bridging the wrist back toward the player's body, so the hand
+   * doesn't read as a disembodied glove floating next to the gun.
+   */
+  private static attachHand(
+    armGroup: THREE.Group,
+    hand: HandAsset,
+    mirror: boolean,
+    position: THREE.Vector3,
+    extraRotY: number,
+    sleeveLength: number
+  ): void {
+    const handInst = this.createHandInstance(hand, mirror);
+    handInst.position.copy(position);
+    handInst.rotation.y += extraRotY;
+    armGroup.add(handInst);
+
+    const sleeveGeo = new THREE.CylinderGeometry(0.036, 0.048, sleeveLength, 10);
+    sleeveGeo.rotateX(Math.PI / 2);
+    const sleeve = new THREE.Mesh(sleeveGeo, this.sleeveMat);
+    sleeve.position.copy(position);
+    sleeve.position.z += sleeveLength * 0.5 + 0.015; // extends back toward the eye
+    sleeve.castShadow = true;
+    armGroup.add(sleeve);
   }
 
   private static createAKArms(): { leftArm: THREE.Group; rightArm: THREE.Group } {

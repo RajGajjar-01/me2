@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { WeaponModels, WeaponRig } from './WeaponModels';
+import { WeaponModels, WeaponRig, HandAsset, HAND_MODEL_PATH } from './WeaponModels';
 import { SoundEngine } from '../audio/SoundEngine';
 import { BulletTracerManager } from '../effects/BulletTracer';
 import { TargetManager } from '../targets/TargetManager';
@@ -64,8 +64,8 @@ export class WeaponManager {
       currentAmmo: 30,
       reserveAmmo: 120,
       damage: 48,
-      idleOffset: new THREE.Vector3(0.18, -0.20, -0.26),
-      adsOffset: new THREE.Vector3(0.0, -0.099, -0.18), // -0.142 sight height x 0.68 scale
+      idleOffset: new THREE.Vector3(0.18, -0.20, -0.19),
+      adsOffset: new THREE.Vector3(0.0, -0.125, -0.15), // -0.142 sight height x 0.88 scale
       recoilForce: { posZ: 0.052, rotX: 0.08, camPitch: 0.026, camYaw: 0.012, spray: 'ak' },
       reloadTime: 2.0,
       reloadStyle: 'mag'
@@ -204,13 +204,23 @@ export class WeaponManager {
    * Hot-swaps the authentic photorealistic AK-47 and Tactical Silenced Ghost Sidearm models into the viewmodel.
    */
   public async loadAssets(onProgress?: (status: string) => void): Promise<void> {
+    onProgress?.('LOADING OPERATOR HANDS...');
+    let handAsset: HandAsset | undefined;
+    try {
+      const handLoader = new GLTFLoader();
+      const handGltf = await handLoader.loadAsync(HAND_MODEL_PATH);
+      handAsset = { scene: handGltf.scene, clip: handGltf.animations[0] };
+    } catch (err) {
+      console.warn('Failed to load hand model, falling back to block-glove arms:', err);
+    }
+
     onProgress?.('LOADING AUTHENTIC AK-47 3D MODEL...');
     try {
       const loader = new GLTFLoader();
       const gltf = await loader.loadAsync(MODELS.ak47);
 
       // Build real AK-47 rig with articulated operator arms and calibrated sightline
-      const realAkRig = WeaponModels.createRealAKRig(gltf.scene);
+      const realAkRig = WeaponModels.createRealAKRig(gltf.scene, handAsset);
 
       // Swap out procedural rig
       const oldRig = this.weaponRigs[0];
@@ -233,7 +243,7 @@ export class WeaponManager {
       const pistolGltf = await loader.loadAsync(MODELS.pistol);
 
       // Build real pistol rig with operator arms & suppressed muzzle alignment
-      const realPistolRig = WeaponModels.createRealPistolRig(pistolGltf.scene);
+      const realPistolRig = WeaponModels.createRealPistolRig(pistolGltf.scene, handAsset);
 
       const oldRig = this.weaponRigs[1];
       if (oldRig) {
@@ -254,7 +264,7 @@ export class WeaponManager {
       const loader = new GLTFLoader();
       const shotgunGltf = await loader.loadAsync(MODELS.shotgun);
 
-      const realShotgunRig = WeaponModels.createRealShotgunRig(shotgunGltf.scene);
+      const realShotgunRig = WeaponModels.createRealShotgunRig(shotgunGltf.scene, handAsset);
 
       const oldRig = this.weaponRigs[2];
       if (oldRig) {
