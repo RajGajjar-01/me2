@@ -7,6 +7,7 @@ import { TargetManager } from '../targets/TargetManager';
 import { DummyManager } from '../targets/DummyManager';
 import { DecalManager } from '../effects/DecalManager';
 import { InputManager } from '../core/InputManager';
+import { MODELS, SOUNDS } from '../assets';
 
 export interface WeaponData {
   name: string;
@@ -206,7 +207,7 @@ export class WeaponManager {
     onProgress?.('LOADING AUTHENTIC AK-47 3D MODEL...');
     try {
       const loader = new GLTFLoader();
-      const gltf = await loader.loadAsync('/models/ak47.glb');
+      const gltf = await loader.loadAsync(MODELS.ak47);
 
       // Build real AK-47 rig with articulated operator arms and calibrated sightline
       const realAkRig = WeaponModels.createRealAKRig(gltf.scene);
@@ -229,7 +230,7 @@ export class WeaponManager {
     onProgress?.('LOADING TACTICAL SILENCED SIDEARM...');
     try {
       const loader = new GLTFLoader();
-      const pistolGltf = await loader.loadAsync('/models/pistol.glb');
+      const pistolGltf = await loader.loadAsync(MODELS.pistol);
 
       // Build real pistol rig with operator arms & suppressed muzzle alignment
       const realPistolRig = WeaponModels.createRealPistolRig(pistolGltf.scene);
@@ -251,7 +252,7 @@ export class WeaponManager {
     onProgress?.('LOADING 12-GAUGE BREACHING SHOTGUN...');
     try {
       const loader = new GLTFLoader();
-      const shotgunGltf = await loader.loadAsync('/models/shotgun.glb');
+      const shotgunGltf = await loader.loadAsync(MODELS.shotgun);
 
       const realShotgunRig = WeaponModels.createRealShotgunRig(shotgunGltf.scene);
 
@@ -270,11 +271,7 @@ export class WeaponManager {
     }
 
     await this.soundEngine.loadSamples(
-      {
-        ak47: '/sounds/ak47.mp3',
-        shotgun: '/sounds/shotgun.mp3',
-        reload: '/sounds/reload.mp3'
-      },
+      SOUNDS,
       onProgress
     );
 

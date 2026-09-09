@@ -55,7 +55,9 @@ export class PlayerController {
     private input: InputManager,
     private bvh: MeshBVH
   ) {
-    this.camera = new THREE.PerspectiveCamera(fov, aspect, 0.1, 1000);
+    // 0.05 near plane: viewmodel geometry legitimately sits within 10cm of the eye,
+    // and 0.1 was clipping into the weapon when it was pulled in for ADS.
+    this.camera = new THREE.PerspectiveCamera(fov, aspect, 0.05, 1000);
     this.updateCapsuleSegment();
     this.syncCamera();
   }

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import { SoundEngine } from '../audio/SoundEngine';
+import { MODELS } from '../assets';
 
 export interface DummyEntity {
   id: number;
@@ -207,7 +208,7 @@ export class DummyManager {
   public async loadCharacterModel(): Promise<void> {
     try {
       const loader = new GLTFLoader();
-      const gltf = await loader.loadAsync('/models/character.glb');
+      const gltf = await loader.loadAsync(MODELS.character);
 
       // Compute bounding box and normalize scale to 1.8m
       const bbox = new THREE.Box3().setFromObject(gltf.scene);

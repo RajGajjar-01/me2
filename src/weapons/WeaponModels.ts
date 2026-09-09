@@ -83,6 +83,11 @@ export class WeaponModels {
       }
     });
 
+    // The GLB's origin is the gun's centre, so its stock butt sits at +0.5 on Z —
+    // i.e. behind the camera once the viewmodel is pulled in for ADS, which slices
+    // the mesh against the near plane. Shift the model forward so the butt lands
+    // just in front of the eye with room to spare for the ADS pull and reload dip.
+    akScene.position.z = -0.48;
     root.add(akScene);
 
     // The procedural block-glove arms were shaped around the procedural AK; against
@@ -95,7 +100,7 @@ export class WeaponModels {
     root.add(rightArm);
 
     // Muzzle flash positioned at barrel tip
-    const muzzlePos = new THREE.Vector3(0, 0.08, -0.52);
+    const muzzlePos = new THREE.Vector3(0, 0.08, -0.98); // barrel tip after the shift
     const { muzzleFlash, flashLight } = this.createMuzzleFlash(muzzlePos);
     root.add(muzzleFlash);
 
@@ -193,7 +198,7 @@ export class WeaponModels {
     holder.add(shotgunScene);
     holder.scale.setScalar(0.38);
     holder.rotation.set(0, 0, -Math.PI / 2);
-    holder.position.set(-0.011, 0.03, -0.12);
+    holder.position.set(-0.011, 0.03, -0.36); // keeps the butt in front of the near plane
     root.add(holder);
 
     // Same as the AK: arms exist for the reload animation but are not drawn, since
@@ -204,7 +209,7 @@ export class WeaponModels {
     root.add(leftArm);
     root.add(rightArm);
 
-    const muzzlePos = new THREE.Vector3(0, 0.045, -0.575);
+    const muzzlePos = new THREE.Vector3(0, 0.045, -0.815);
     const { muzzleFlash, flashLight } = this.createMuzzleFlash(muzzlePos);
     muzzleFlash.scale.setScalar(1.35); // 12ga blast is noticeably fatter than 7.62
     root.add(muzzleFlash);
