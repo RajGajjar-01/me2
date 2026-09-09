@@ -19,7 +19,17 @@ export interface WeaponData {
   damage: number;
   adsOffset: THREE.Vector3;
   idleOffset: THREE.Vector3;
-  recoilForce: { posZ: number; rotX: number };
+  /**
+   * posZ/rotX drive the viewmodel spring. camPitch/camYaw are the real per-shot
+   * aim kick in radians; `spray` picks the pattern the kick follows during a burst.
+   */
+  recoilForce: {
+    posZ: number;
+    rotX: number;
+    camPitch: number;
+    camYaw: number;
+    spray: 'ak' | 'simple';
+  };
   /** Seconds for a full reload cycle — drives both the animation and the audio cues. */
   reloadTime: number;
   /** 'mag' = detach/insert/charge cycle. 'shells' = thumb rounds into a tube, then rack. */
@@ -48,14 +58,16 @@ export class WeaponManager {
       name: 'AK-47',
       fireMode: 'AUTO // 7.62x39mm',
       isAuto: true,
-      fireRate: 10.0,
+      // Locked to the cadence of the burst recording so the flash, the ammo
+      // counter and the audible rounds all land on the same beat.
+      fireRate: SoundEngine.AK_BURST_RATE,
       magSize: 30,
       currentAmmo: 30,
       reserveAmmo: 120,
       damage: 48,
       idleOffset: new THREE.Vector3(0.18, -0.20, -0.26),
       adsOffset: new THREE.Vector3(0.0, -0.142, -0.18),
-      recoilForce: { posZ: 0.052, rotX: 0.08 },
+      recoilForce: { posZ: 0.052, rotX: 0.08, camPitch: 0.026, camYaw: 0.012, spray: 'ak' },
       reloadTime: 2.0,
       reloadStyle: 'mag'
     },
@@ -70,7 +82,7 @@ export class WeaponManager {
       damage: 36,
       idleOffset: new THREE.Vector3(0.13, -0.15, -0.24),
       adsOffset: new THREE.Vector3(0.0, -0.055, -0.18),
-      recoilForce: { posZ: 0.038, rotX: 0.06 },
+      recoilForce: { posZ: 0.038, rotX: 0.06, camPitch: 0.014, camYaw: 0.005, spray: 'simple' },
       reloadTime: 1.9,
       reloadStyle: 'mag'
     },
@@ -85,7 +97,7 @@ export class WeaponManager {
       damage: 22, // per pellet — 8 pellets on target is a one-shot kill up close
       idleOffset: new THREE.Vector3(0.17, -0.19, -0.24),
       adsOffset: new THREE.Vector3(0.0, -0.115, -0.16),
-      recoilForce: { posZ: 0.085, rotX: 0.14 },
+      recoilForce: { posZ: 0.085, rotX: 0.14, camPitch: 0.085, camYaw: 0.018, spray: 'simple' },
       reloadTime: 2.8,
       reloadStyle: 'shells',
       pellets: 8,
@@ -116,6 +128,10 @@ export class WeaponManager {
   private flashTimer = 0;
   private reloadTimer = 0;
   private canFireSemi = true;
+  /** True while the looping burst recording is carrying automatic fire. */
+  private autoFireAudio = false;
+  /** Rounds fired since the trigger was last pulled, for the one-shot -> burst handover. */
+  private heldRounds = 0;
 
   // Reload choreography: gun + left-hand keyframes, with audio cues fired on the
   // exact phase boundary they belong to instead of one canned reload blob.
@@ -153,6 +169,12 @@ export class WeaponManager {
   public onAmmoChange?: (current: number, reserve: number, name: string, mode: string) => void;
   public onStatsUpdate?: (shots: number, hits: number, accuracy: number) => void;
   public onRecoilTelemetry?: (spreadX: number, spreadY: number, isHit: boolean) => void;
+  /** Per-shot aim kick in radians (+pitch = up, +yaw = left). Wired to PlayerController.applyRecoil. */
+  public onRecoil?: (pitchDelta: number, yawDelta: number) => void;
+
+  // Sustained-fire escalation: index of the current shot within the burst.
+  private burstShot = 0;
+  private static readonly BURST_RESET = 0.35;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -256,6 +278,7 @@ export class WeaponManager {
     await this.soundEngine.loadSamples(
       {
         ak47: '/sounds/ak47.mp3',
+        ak47_burst: '/sounds/ak47_burst.mp3',
         shotgun: '/sounds/shotgun.mp3',
         reload: '/sounds/reload.mp3'
       },
@@ -325,7 +348,20 @@ export class WeaponManager {
     const now = performance.now() / 1000;
     const fireInterval = 1.0 / weapon.fireRate;
 
-    if (isFireDown && !this.isReloading && !this.isSwapping) {
+    const canFire = isFireDown && !this.isReloading && !this.isSwapping;
+
+    // Releasing the trigger (or running the magazine dry) ends the burst take and
+    // re-arms the single-shot sample for the next tap. Starting it is handled in
+    // shoot(), so the loop enters exactly on the second round's beat.
+    if (!canFire) this.heldRounds = 0;
+
+    const sustaining = canFire && weapon.isAuto && weapon.currentAmmo > 0;
+    if (!sustaining && this.autoFireAudio) {
+      this.soundEngine.stopAutoFire();
+      this.autoFireAudio = false;
+    }
+
+    if (canFire) {
       if (weapon.isAuto || this.canFireSemi) {
         if (now - this.lastFireTime >= fireInterval) {
           this.shoot(now);
@@ -335,6 +371,7 @@ export class WeaponManager {
     } else {
       this.canFireSemi = true;
     }
+
 
     // 4. Reload Logic
     if (this.input.isKeyPressed('KeyR') && !this.isReloading && !this.isSwapping) {
@@ -488,6 +525,9 @@ export class WeaponManager {
     const weapon = this.weapons[this.currentWeaponIndex];
     const rig = this.weaponRigs[this.currentWeaponIndex];
 
+    // A gap in the trigger pull resets the spray pattern back to shot 1.
+    if (now - this.lastFireTime > WeaponManager.BURST_RESET) this.burstShot = 0;
+
     if (weapon.currentAmmo <= 0) {
       this.soundEngine.playDryFire();
       this.lastFireTime = now;
@@ -496,11 +536,23 @@ export class WeaponManager {
 
     weapon.currentAmmo--;
     this.totalShots++;
+    this.heldRounds++;
     this.lastFireTime = now;
     this.notifyAmmo();
 
     if (this.currentWeaponIndex === 0) {
-      this.soundEngine.playRifleShot();
+      // heldRounds already counts this round, so 1 is the first shot of the pull and
+      // takes the single-shot take. From the second round on the trigger is genuinely
+      // held, so the looping burst recording takes over — entering here, on the beat,
+      // rather than a frame after the first shot. While it runs every round is already
+      // audible in the recording, so no one-shot is layered on top.
+      if (weapon.isAuto && this.heldRounds >= 2) {
+        if (!this.autoFireAudio) {
+          this.autoFireAudio = this.soundEngine.startAutoFire();
+          if (this.autoFireAudio) this.soundEngine.duckSample('ak47');
+        }
+      }
+      if (!this.autoFireAudio) this.soundEngine.playRifleShot();
     } else if (this.currentWeaponIndex === 2) {
       this.soundEngine.playShotgunShot();
     } else {
@@ -509,14 +561,38 @@ export class WeaponManager {
 
     // Recoil impulse
     const kickMult = this.isAiming ? 0.75 : 1.0;
-    this.recoilVel.z += weapon.recoilForce.posZ * 4.4 * kickMult;
-    this.recoilVel.y += weapon.recoilForce.posZ * 1.3 * kickMult;
-    this.recoilRotVel.x += weapon.recoilForce.rotX * 5.2 * kickMult;
+    const n = this.burstShot;
+    // Consecutive shots hit harder; caps out so a full mag stays controllable.
+    const escalate = 1 + Math.min(n, 9) * 0.11;
+
+    this.recoilVel.z += weapon.recoilForce.posZ * 4.4 * kickMult * escalate;
+    this.recoilVel.y += weapon.recoilForce.posZ * 1.3 * kickMult * escalate;
+    this.recoilRotVel.x += weapon.recoilForce.rotX * 5.2 * kickMult * escalate;
     this.recoilRotVel.z += (Math.random() - 0.5) * 0.08 * kickMult; // authentic barrel torque twist
     this.recoilRotVel.y += (Math.random() - 0.5) * 0.05 * kickMult;
 
-    this.cameraRecoilPitch += (this.isAiming ? 0.015 : 0.026);
-    this.cameraRecoilYaw += (Math.random() - 0.5) * (this.isAiming ? 0.007 : 0.014);
+    // --- Real aim kick: this actually moves where the player is pointing ---
+    const rc = weapon.recoilForce;
+    const adsMult = this.isAiming ? 0.55 : 1.0;
+    let pitchKick = rc.camPitch * escalate * adsMult * (0.88 + Math.random() * 0.24);
+    let yawKick: number;
+
+    if (rc.spray === 'ak') {
+      // First rounds go near-vertical, then the muzzle starts snaking left/right.
+      const snake = n < 5 ? (Math.random() - 0.5) * 0.5 : Math.sin((n - 5) * 0.85) * 1.9;
+      yawKick = rc.camYaw * snake * adsMult * (0.85 + Math.random() * 0.3);
+      // Climb tapers a touch once the pattern goes horizontal
+      if (n >= 6) pitchKick *= 0.78;
+    } else {
+      yawKick = rc.camYaw * (Math.random() - 0.5) * 2 * adsMult;
+    }
+
+    this.onRecoil?.(pitchKick, yawKick);
+    this.burstShot++;
+
+    // Telemetry-only decaying trace of the kick
+    this.cameraRecoilPitch += pitchKick;
+    this.cameraRecoilYaw += yawKick;
 
     if (rig.slideOrBolt) {
       rig.slideOrBolt.position.z = 0.038;

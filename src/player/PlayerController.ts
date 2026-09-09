@@ -31,8 +31,14 @@ export class PlayerController {
   // Rotation angles
   private pitch = 0;
   private yaw = 0;
-  public recoilPitchOffset = 0;
-  public recoilYawOffset = 0;
+
+  // Recoil recovery: how much of the applied kick is still owed back, plus a
+  // short hold-off so recovery only starts once the burst stops.
+  private recoverPitch = 0;
+  private recoverYaw = 0;
+  private recoverHold = 0;
+  /** Fraction of each kick that is given back; the rest is permanent aim climb. */
+  public recoilRecovery = 0.7;
 
   // Movement parameters
   private walkSpeed = 5.2;
@@ -64,12 +70,32 @@ export class PlayerController {
     const mouse = this.input.consumeMouseDelta();
     this.yaw -= mouse.x;
     this.pitch -= mouse.y;
+
+    // The player moved the mouse: drop whatever recoil we still owed back rather
+    // than dragging their aim around while they compensate.
+    if (Math.abs(mouse.x) > 0.0004 || Math.abs(mouse.y) > 0.0004) {
+      this.recoverPitch = 0;
+      this.recoverYaw = 0;
+    }
+
+    if (this.recoverHold > 0) {
+      this.recoverHold -= delta;
+    } else if (this.recoverPitch !== 0 || this.recoverYaw !== 0) {
+      const k = 1 - Math.exp(-9 * delta);
+      const dp = this.recoverPitch * k;
+      const dy = this.recoverYaw * k;
+      this.pitch -= dp;
+      this.yaw -= dy;
+      this.recoverPitch -= dp;
+      this.recoverYaw -= dy;
+    }
+
     // Clamp pitch between -85 and +85 degrees
     this.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch));
 
     this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = this.yaw + this.recoilYawOffset;
-    this.camera.rotation.x = this.pitch + this.recoilPitchOffset;
+    this.camera.rotation.y = this.yaw;
+    this.camera.rotation.x = this.pitch;
 
     // 2. Sprint & Stamina logic
     const wantsSprint = this.input.isKeyDown('ShiftLeft') || this.input.isKeyDown('ShiftRight');
@@ -208,6 +234,19 @@ export class PlayerController {
       eyeY + (this.bobTimer > 0 ? bobY : 0),
       this.capsulePosition.z
     );
+  }
+
+  /**
+   * Kicks the player's *actual* aim. Positive pitchDelta looks up, positive
+   * yawDelta looks left. A fraction (recoilRecovery) drifts back once firing
+   * stops; the remainder is permanent climb the player has to pull down.
+   */
+  public applyRecoil(pitchDelta: number, yawDelta: number): void {
+    this.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch + pitchDelta));
+    this.yaw += yawDelta;
+    this.recoverPitch += pitchDelta * this.recoilRecovery;
+    this.recoverYaw += yawDelta * this.recoilRecovery;
+    this.recoverHold = 0.09; // each shot pushes recovery back so bursts keep climbing
   }
 
   public getSpeed(): number {

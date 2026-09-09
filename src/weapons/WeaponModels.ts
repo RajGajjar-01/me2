@@ -85,8 +85,12 @@ export class WeaponModels {
 
     root.add(akScene);
 
-    // Tactical Operator Arms with Combat Gloves
+    // The procedural block-glove arms were shaped around the procedural AK; against
+    // the imported model they read as a box floating beside the gun, so they are
+    // built (the reload animation still drives them) but not drawn.
     const { leftArm, rightArm } = this.createAKArms();
+    leftArm.visible = false;
+    rightArm.visible = false;
     root.add(leftArm);
     root.add(rightArm);
 
@@ -182,20 +186,25 @@ export class WeaponModels {
       }
     });
 
-    // Holder normalizes the asset: ~0.78m barrel length, muzzle facing -Z, seated in the grip
+    // Holder normalizes the asset. The source model is authored lying on its side —
+    // its local +X is the gun's "up" and its barrels already run down -Z — so a single
+    // -90° roll about Z stands it upright without disturbing the barrel axis.
     const holder = new THREE.Group();
     holder.add(shotgunScene);
     holder.scale.setScalar(0.38);
-    holder.rotation.y = Math.PI;
-    holder.position.set(0, -0.03, -0.04);
+    holder.rotation.set(0, 0, -Math.PI / 2);
+    holder.position.set(-0.011, 0.03, -0.12);
     root.add(holder);
 
-    // Two-handed long-gun stance reuses the rifle operator arms
+    // Same as the AK: arms exist for the reload animation but are not drawn, since
+    // the block gloves do not line up with this model's forend.
     const { leftArm, rightArm } = this.createAKArms();
+    leftArm.visible = false;
+    rightArm.visible = false;
     root.add(leftArm);
     root.add(rightArm);
 
-    const muzzlePos = new THREE.Vector3(0, 0.03, -0.56);
+    const muzzlePos = new THREE.Vector3(0, 0.045, -0.575);
     const { muzzleFlash, flashLight } = this.createMuzzleFlash(muzzlePos);
     muzzleFlash.scale.setScalar(1.35); // 12ga blast is noticeably fatter than 7.62
     root.add(muzzleFlash);

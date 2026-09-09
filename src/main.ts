@@ -86,6 +86,8 @@ class GameApp {
         this.renderer.scene,
         this.range.colliderMesh
       );
+      // Recoil moves the player's real aim, not a cosmetic camera offset.
+      this.weapons.onRecoil = (pitch, yaw) => this.player!.applyRecoil(pitch, yaw);
       await this.weapons.loadAssets((status) => {
         this.loaderStatus.textContent = status;
         this.loaderPercent.textContent = '95%';
@@ -191,8 +193,6 @@ class GameApp {
       if (this.input.isLocked) {
         if (this.weapons) {
           this.weapons.update(delta, this.player.getSpeed(), this.player.onGround);
-          this.player.recoilPitchOffset = this.weapons.cameraRecoilPitch;
-          this.player.recoilYawOffset = this.weapons.cameraRecoilYaw;
         }
         this.player.update(delta);
       }

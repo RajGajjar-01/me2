@@ -10,6 +10,9 @@ export class SoundEngine {
   /** Decoded real-world gun recordings, keyed by name. Missing keys fall back to synthesis. */
   private samples: Map<string, AudioBuffer> = new Map();
 
+  /** Gain node of the currently-ringing take per sample name, so its tail can be ducked. */
+  private voices: Map<string, GainNode> = new Map();
+
   constructor() {}
 
   /**
@@ -50,6 +53,17 @@ export class SoundEngine {
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
+    // A shot recording carries a long reverb tail. Left alone, full-auto stacks
+    // thirty overlapping tails into mush, so the previous tail of this same voice
+    // is faded out as the next round goes off — the transient still lands dry and
+    // punchy, and a lone shot keeps its full decay.
+    const prev = this.voices.get(name);
+    if (prev) {
+      prev.gain.cancelScheduledValues(now);
+      prev.gain.setValueAtTime(prev.gain.value, now);
+      prev.gain.exponentialRampToValueAtTime(0.0001, now + 0.09);
+    }
+
     const src = ctx.createBufferSource();
     src.buffer = buf;
     src.playbackRate.value = 1 + (Math.random() - 0.5) * detune;
@@ -60,11 +74,100 @@ export class SoundEngine {
     src.connect(g);
     g.connect(ctx.destination);
     src.start(now);
+
+    this.voices.set(name, g);
+    src.onended = () => {
+      if (this.voices.get(name) === g) this.voices.delete(name);
+    };
     return true;
   }
 
   public hasSample(name: string): boolean {
     return this.samples.has(name);
+  }
+
+  // --- Sustained automatic fire -----------------------------------------------
+  // Retriggering a one-shot sample 9 times a second never sounds like a real
+  // machine gun. Instead the recorded burst take is looped over its steadiest
+  // stretch, and the weapon's fire rate is tuned to that recording's own cadence
+  // so the muzzle flash and ammo counter land on the audible shots.
+
+  /** Onsets in ak47_burst.mp3: 11 evenly spaced rounds between these two marks. */
+  public static readonly AK_BURST_LOOP_START = 1.107;
+  public static readonly AK_BURST_LOOP_END = 2.330;
+  public static readonly AK_BURST_ROUNDS_PER_LOOP = 11;
+  /** 11 rounds / 1.223s — the fire rate the burst recording is actually firing at. */
+  public static readonly AK_BURST_RATE =
+    SoundEngine.AK_BURST_ROUNDS_PER_LOOP /
+    (SoundEngine.AK_BURST_LOOP_END - SoundEngine.AK_BURST_LOOP_START);
+
+  private autoSource: AudioBufferSourceNode | null = null;
+  private autoGain: GainNode | null = null;
+
+  /**
+   * Starts the looping burst take, entering exactly on a shot onset so the first
+   * round is immediate and on the beat. No-op if already running.
+   * Returns false when the burst sample is missing, so the caller can fall back to
+   * per-shot playback.
+   */
+  public startAutoFire(name = 'ak47_burst'): boolean {
+    if (this.isMuted) return true;
+
+    const buf = this.samples.get(name);
+    if (!buf) return false;
+    if (this.autoSource) return true;
+
+    const ctx = this.initContext();
+    const now = ctx.currentTime;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.loopStart = SoundEngine.AK_BURST_LOOP_START;
+    src.loopEnd = SoundEngine.AK_BURST_LOOP_END;
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(1.0, now);
+
+    src.connect(g);
+    g.connect(ctx.destination);
+    src.start(now, SoundEngine.AK_BURST_LOOP_START);
+
+    this.autoSource = src;
+    this.autoGain = g;
+    return true;
+  }
+
+  /** Releases the trigger: short fade so the burst decays instead of clipping off. */
+  public stopAutoFire(): void {
+    const src = this.autoSource;
+    const g = this.autoGain;
+    if (!src || !g) return;
+
+    this.autoSource = null;
+    this.autoGain = null;
+
+    const ctx = this.initContext();
+    const now = ctx.currentTime;
+    g.gain.cancelScheduledValues(now);
+    g.gain.setValueAtTime(g.gain.value, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + 0.16);
+    src.stop(now + 0.18);
+  }
+
+  public get isAutoFiring(): boolean {
+    return this.autoSource !== null;
+  }
+
+  /** Fades out a still-ringing one-shot take, e.g. when the burst loop takes over from it. */
+  public duckSample(name: string, seconds = 0.12): void {
+    const g = this.voices.get(name);
+    if (!g) return;
+    const now = this.initContext().currentTime;
+    g.gain.cancelScheduledValues(now);
+    g.gain.setValueAtTime(g.gain.value, now);
+    g.gain.exponentialRampToValueAtTime(0.0001, now + seconds);
+    this.voices.delete(name);
   }
 
   private initContext(): AudioContext {
@@ -140,13 +243,9 @@ export class SoundEngine {
   public playRifleShot(): void {
     if (this.isMuted) return;
 
-    // Real recorded AK-47 report, re-bodied with sub-bass and compound echo so a
-    // single shot lands with weight instead of sounding like a dry sample.
-    if (this.playSample('ak47', 0.95, 0.07)) {
-      this.layerSubThump(0.7, 135, 26, 0.22);
-      this.layerOutdoorTail(0.3, 0.5);
-      return;
-    }
+    // Real recorded AK-47 report, played clean: the take already carries its own
+    // low end and range echo, so nothing is layered underneath it.
+    if (this.playSample('ak47', 1.0, 0.05)) return;
 
     const ctx = this.initContext();
     const now = ctx.currentTime;
