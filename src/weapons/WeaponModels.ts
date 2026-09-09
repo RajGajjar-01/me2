@@ -131,8 +131,10 @@ export class WeaponModels {
       // Right hand on the pistol grip (just behind the magwell); left hand under
       // the handguard/forend. Estimated from the AK's raw bounding box and typical
       // AK layout (this GLB has no named sub-parts to anchor to directly).
-      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.011, -0.066, -0.477), 0, 0.16);
-      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.004, -0.026, -0.776), Math.PI / 2, 0.18);
+      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.028, -0.090, -0.386),
+        new THREE.Euler(0, Math.PI / 2, 0.25));
+      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.030, -0.062, -0.640),
+        new THREE.Euler(0, -Math.PI / 2, -0.25));
     } else {
       const arms = this.createAKArms();
       leftArm = arms.leftArm;
@@ -198,8 +200,10 @@ export class WeaponModels {
     if (handAsset) {
       leftArm = new THREE.Group();
       rightArm = new THREE.Group();
-      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.01, -0.06, 0.06), 0, 0.15);
-      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.02, -0.068, 0.05), Math.PI / 2, 0.16);
+      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.012, -0.060, 0.045),
+        new THREE.Euler(0, Math.PI / 2, 0.2));
+      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.022, -0.070, 0.020),
+        new THREE.Euler(0, -Math.PI / 2, -0.2));
     } else {
       const arms = this.createPistolArms();
       leftArm = arms.leftArm;
@@ -263,8 +267,10 @@ export class WeaponModels {
     if (handAsset) {
       leftArm = new THREE.Group();
       rightArm = new THREE.Group();
-      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.011, -0.066, -0.477), 0, 0.16);
-      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.004, -0.026, -0.776), Math.PI / 2, 0.18);
+      this.attachHand(rightArm, handAsset, false, new THREE.Vector3(0.028, -0.090, -0.386),
+        new THREE.Euler(0, Math.PI / 2, 0.25));
+      this.attachHand(leftArm, handAsset, true, new THREE.Vector3(-0.030, -0.062, -0.640),
+        new THREE.Euler(0, -Math.PI / 2, -0.25));
     } else {
       const arms = this.createAKArms();
       leftArm = arms.leftArm;
@@ -582,6 +588,19 @@ export class WeaponModels {
    * measures the actual rendered bounding box and scales to a target length
    * instead of trusting a guessed constant.
    */
+  /**
+   * Hand length measured from the asset's own bones (wrist joint `HandMain` to
+   * `MiddleF_tip_end`), NOT from its bounding box.
+   *
+   * This model is a SkinnedMesh whose geometry is authored tiny (raw POSITION
+   * extents are 0.007 x 0.001 x 0.004) and blown up to size by its bones.
+   * `Box3.setFromObject` ignores skinning entirely, so sizing or orienting the
+   * hand from a bounding box produces a wrongly-scaled, wrongly-rotated hand.
+   */
+  private static readonly HAND_BONE_LENGTH = 2.6131;
+  /** Average adult hand, wrist to fingertip, in metres. */
+  private static readonly HAND_TARGET_LENGTH = 0.17;
+
   private static createHandInstance(hand: HandAsset, mirror: boolean): THREE.Object3D {
     const inst = cloneSkinned(hand.scene) as THREE.Object3D;
     inst.traverse((child) => {
@@ -593,31 +612,34 @@ export class WeaponModels {
       }
     });
 
-    const size = new THREE.Vector3();
-    new THREE.Box3().setFromObject(inst).getSize(size);
-    const longest = Math.max(size.x, size.y, size.z) || 1;
-    const HAND_LENGTH = 0.17; // average adult hand, wrist to fingertip, in metres
-    const s = HAND_LENGTH / longest;
-    inst.scale.setScalar(s);
-    if (mirror) inst.scale.x *= -1; // right-hand asset -> left hand
+    inst.scale.setScalar(this.HAND_TARGET_LENGTH / this.HAND_BONE_LENGTH);
 
-    // Bake a partial grip pose from the model's own grasp clip (if it shipped one)
-    // instead of leaving fingers flat open, then discard the mixer — the hands
-    // are posed once at rig-build time, not animated live every frame.
+    // Bake a grip pose from the model's own grasp clip, then discard the mixer —
+    // hands are posed once at rig-build time, not animated live every frame.
+    // 0.75 of the clip is the closed-fist peak: the curl runs open -> closed ->
+    // open, so both 0.35 and 0.6 land on nearly-flat fingers.
     if (hand.clip) {
       const mixer = new THREE.AnimationMixer(inst);
-      const action = mixer.clipAction(hand.clip);
-      action.play();
-      mixer.update(hand.clip.duration * 0.35);
-      mixer.stopAllAction();
+      mixer.clipAction(hand.clip).play();
+      mixer.update(hand.clip.duration * 0.75);
+      // Deliberately NOT stopAllAction(): deactivating an action makes the mixer
+      // restore the bind pose, which would silently undo the scrub above and leave
+      // the fingers flat. Dropping the mixer instead leaves the posed bones in place.
     }
 
-    // Measured from the source file's raw POSITION accessor: local +X runs along
-    // the fingers. Point that down the barrel (-Z) so the hand reads as wrapped
-    // around the gun rather than lying flat across it.
-    inst.rotation.y = Math.PI / 2;
+    // Measured finger direction is local -X (wrist -> middle fingertip is
+    // (-0.997, -0.074, -0.017)). Rotating -90deg about Y maps -X onto -Z, i.e.
+    // down the barrel. (+90deg would point the fingers back at the camera.)
+    inst.rotation.y = -Math.PI / 2;
 
-    return inst;
+    // Mirror for the opposite hand by rolling 180deg about the barrel axis rather
+    // than negating a scale axis: a negative scale flips the winding order on a
+    // skinned mesh, which renders it inside-out and lit from the wrong side.
+    const wrapper = new THREE.Group();
+    wrapper.add(inst);
+    if (mirror) wrapper.rotation.z = Math.PI;
+
+    return wrapper;
   }
 
   /**
@@ -630,21 +652,20 @@ export class WeaponModels {
     hand: HandAsset,
     mirror: boolean,
     position: THREE.Vector3,
-    extraRotY: number,
-    sleeveLength: number
+    rotation: THREE.Euler
   ): void {
     const handInst = this.createHandInstance(hand, mirror);
     handInst.position.copy(position);
-    handInst.rotation.y += extraRotY;
+    // Base orientation already points the fingers down -Z; this Euler turns them
+    // across the weapon so they wrap the grip/handguard instead of lying along it.
+    handInst.rotation.x += rotation.x;
+    handInst.rotation.y += rotation.y;
+    handInst.rotation.z += rotation.z;
     armGroup.add(handInst);
 
-    const sleeveGeo = new THREE.CylinderGeometry(0.036, 0.048, sleeveLength, 10);
-    sleeveGeo.rotateX(Math.PI / 2);
-    const sleeve = new THREE.Mesh(sleeveGeo, this.sleeveMat);
-    sleeve.position.copy(position);
-    sleeve.position.z += sleeveLength * 0.5 + 0.015; // extends back toward the eye
-    sleeve.castShadow = true;
-    armGroup.add(sleeve);
+    // No procedural sleeve: this asset is hand-only (its geometry ends just past
+    // the wrist bone), and the old cylinder read as a detached green tube rather
+    // than an arm. A forearm belongs to the hand model, not bolted on beside it.
   }
 
   private static createAKArms(): { leftArm: THREE.Group; rightArm: THREE.Group } {
