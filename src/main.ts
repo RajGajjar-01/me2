@@ -36,6 +36,7 @@ class GameApp {
   private fireMode = document.getElementById('fire-mode')!;
   private slotPrimary = document.getElementById('slot-primary')!;
   private slotSecondary = document.getElementById('slot-secondary')!;
+  private slotTertiary = document.getElementById('slot-tertiary')!;
   private hitsCounter = document.getElementById('hits-counter')!;
   private accuracyCounter = document.getElementById('accuracy-counter')!;
 
@@ -116,13 +117,11 @@ class GameApp {
       this.weaponName.textContent = name;
       this.fireMode.textContent = mode;
 
-      if (this.weapons.currentWeaponIndex === 0) {
-        this.slotPrimary.classList.add('active');
-        this.slotSecondary.classList.remove('active');
-      } else {
-        this.slotPrimary.classList.remove('active');
-        this.slotSecondary.classList.add('active');
-      }
+      const slots = [this.slotPrimary, this.slotSecondary, this.slotTertiary];
+      slots.forEach((slot, i) => {
+        if (!slot) return;
+        slot.classList.toggle('active', i === this.weapons.currentWeaponIndex);
+      });
     };
 
     this.weapons.onStatsUpdate = (_shots, hits, acc) => {

@@ -190,9 +190,7 @@ export class OutdoorRange {
     groundMesh.receiveShadow = true;
     this.group.add(groundMesh);
 
-    const groundCol = groundGeo.clone();
-    groundCol.applyMatrix4(groundMesh.matrixWorld);
-    this.colliders.push(groundCol);
+    this.addCollider(groundGeo, groundMesh);
 
     // Perimeter Security Blast Barriers (Jersey Walls)
     const wallHeight = 4.0;
@@ -211,9 +209,7 @@ export class OutdoorRange {
       mesh.castShadow = true;
       this.group.add(mesh);
 
-      const col = geo.clone();
-      col.applyMatrix4(mesh.matrixWorld);
-      this.colliders.push(col);
+      this.addCollider(geo, mesh);
     });
 
     // Firing line distance markers on floor (10M, 25M, 50M)
@@ -258,9 +254,7 @@ export class OutdoorRange {
       mesh.receiveShadow = true;
       this.group.add(mesh);
 
-      const col = geo.clone();
-      col.applyMatrix4(mesh.matrixWorld);
-      this.colliders.push(col);
+      this.addCollider(geo, mesh);
     });
 
     // 2. Tactical Wooden Breaching Barricades
@@ -282,9 +276,7 @@ export class OutdoorRange {
       mesh.receiveShadow = true;
       this.group.add(mesh);
 
-      const col = geo.clone();
-      col.applyMatrix4(mesh.matrixWorld);
-      this.colliders.push(col);
+      this.addCollider(geo, mesh);
     });
 
     // 3. Sandbag Bunkers (Low crouch cover)
@@ -304,9 +296,7 @@ export class OutdoorRange {
       mesh.receiveShadow = true;
       this.group.add(mesh);
 
-      const col = geo.clone();
-      col.applyMatrix4(mesh.matrixWorld);
-      this.colliders.push(col);
+      this.addCollider(geo, mesh);
     });
   }
 
@@ -323,9 +313,7 @@ export class OutdoorRange {
     platMesh.receiveShadow = true;
     this.group.add(platMesh);
 
-    const platCol = platGeo.clone();
-    platCol.applyMatrix4(platMesh.matrixWorld);
-    this.colliders.push(platCol);
+    this.addCollider(platGeo, platMesh);
 
     // Support pillars
     const pillars = [
@@ -339,9 +327,7 @@ export class OutdoorRange {
       pillarMesh.castShadow = true;
       this.group.add(pillarMesh);
 
-      const col = pillarGeo.clone();
-      col.applyMatrix4(pillarMesh.matrixWorld);
-      this.colliders.push(col);
+      this.addCollider(pillarGeo, pillarMesh);
     });
 
     // Walkable Ramp leading up to the tower
@@ -353,9 +339,7 @@ export class OutdoorRange {
     rampMesh.receiveShadow = true;
     this.group.add(rampMesh);
 
-    const rampCol = rampGeo.clone();
-    rampCol.applyMatrix4(rampMesh.matrixWorld);
-    this.colliders.push(rampCol);
+    this.addCollider(rampGeo, rampMesh);
 
     // Tower canopy roof
     const roofGeo = new THREE.BoxGeometry(7, 0.2, 7);
@@ -384,6 +368,18 @@ export class OutdoorRange {
       mesh.position.set(m.pos[0], m.pos[1], m.pos[2]);
       this.group.add(mesh);
     });
+  }
+
+  /**
+   * Bakes a mesh's world transform into a cloned geometry for the static collision BVH.
+   * matrixWorld is only refreshed by the renderer, so it must be forced up to date here —
+   * otherwise every collider is baked at the origin with no rotation.
+   */
+  private addCollider(geo: THREE.BufferGeometry, mesh: THREE.Object3D): void {
+    mesh.updateMatrixWorld(true);
+    const col = geo.clone();
+    col.applyMatrix4(mesh.matrixWorld);
+    this.colliders.push(col);
   }
 
   private buildCollisionMesh(): void {

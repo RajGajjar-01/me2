@@ -7,7 +7,65 @@ export class SoundEngine {
   private ctx: AudioContext | null = null;
   private isMuted = false;
 
+  /** Decoded real-world gun recordings, keyed by name. Missing keys fall back to synthesis. */
+  private samples: Map<string, AudioBuffer> = new Map();
+
   constructor() {}
+
+  /**
+   * Fetches and decodes the real recorded gun samples in public/sounds.
+   * Any file that is missing or fails to decode is simply skipped — every caller
+   * has a synthesized fallback, so audio never blocks or breaks the load.
+   */
+  public async loadSamples(
+    manifest: Record<string, string>,
+    onProgress?: (status: string) => void
+  ): Promise<void> {
+    const ctx = this.initContext();
+    onProgress?.('LOADING LIVE-FIRE AUDIO SAMPLES...');
+
+    await Promise.all(
+      Object.entries(manifest).map(async ([name, url]) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const buf = await ctx.decodeAudioData(await res.arrayBuffer());
+          this.samples.set(name, buf);
+        } catch (err) {
+          console.warn(`Sound sample "${name}" unavailable, using synthesized fallback:`, err);
+        }
+      })
+    );
+  }
+
+  /**
+   * Plays a decoded sample with slight per-shot pitch/level variation so full-auto
+   * fire never sounds like the same file machine-gunned back at you.
+   * Returns false when the sample is absent so the caller can synthesize instead.
+   */
+  private playSample(name: string, gain = 1.0, detune = 0.0): boolean {
+    const buf = this.samples.get(name);
+    if (!buf) return false;
+
+    const ctx = this.initContext();
+    const now = ctx.currentTime;
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = 1 + (Math.random() - 0.5) * detune;
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(gain * (0.92 + Math.random() * 0.16), now);
+
+    src.connect(g);
+    g.connect(ctx.destination);
+    src.start(now);
+    return true;
+  }
+
+  public hasSample(name: string): boolean {
+    return this.samples.has(name);
+  }
 
   private initContext(): AudioContext {
     if (!this.ctx) {
@@ -23,8 +81,73 @@ export class SoundEngine {
   /**
    * Thunderous 7.62x39mm Soviet AK-47 Gunshot with Outdoor Echo Reverb
    */
+  /**
+   * Adds the low end a dry close-mic gunshot recording physically cannot capture.
+   * Without this layer a real sample plays back thin and "clicky" on small speakers.
+   */
+  private layerSubThump(gain: number, fromHz: number, toHz: number, dur: number): void {
+    const ctx = this.initContext();
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(fromHz, now);
+    osc.frequency.exponentialRampToValueAtTime(toHz, now + dur);
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(gain, now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur * 1.15);
+
+    osc.connect(g);
+    g.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + dur * 1.2);
+  }
+
+  /**
+   * Open-air slapback off the compound walls, delayed slightly behind the muzzle
+   * report — this is what makes a shot read as "outdoors" rather than "a file".
+   */
+  private layerOutdoorTail(gain: number, dur: number, cutoffHz = 780): void {
+    const ctx = this.initContext();
+    const now = ctx.currentTime;
+
+    const size = Math.floor(ctx.sampleRate * dur);
+    const buf = ctx.createBuffer(1, size, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < size; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * dur * 0.24));
+    }
+
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(cutoffHz, now);
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, now);
+    g.gain.linearRampToValueAtTime(gain, now + 0.045);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(ctx.destination);
+    src.start(now);
+  }
+
   public playRifleShot(): void {
     if (this.isMuted) return;
+
+    // Real recorded AK-47 report, re-bodied with sub-bass and compound echo so a
+    // single shot lands with weight instead of sounding like a dry sample.
+    if (this.playSample('ak47', 0.95, 0.07)) {
+      this.layerSubThump(0.7, 135, 26, 0.22);
+      this.layerOutdoorTail(0.3, 0.5);
+      return;
+    }
+
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
@@ -224,15 +347,121 @@ export class SoundEngine {
     }
   }
 
-  public playReloadSound(): void {
+  /**
+   * Thunderous 12-gauge blast: a slower, deeper, wider-tailed report than the rifle.
+   */
+  public playShotgunShot(): void {
     if (this.isMuted) return;
+    if (this.playSample('shotgun', 1.0, 0.05)) {
+      this.layerSubThump(0.95, 115, 20, 0.32);
+      this.layerOutdoorTail(0.38, 0.62, 620);
+      return;
+    }
+
     const ctx = this.initContext();
     const now = ctx.currentTime;
-    this.playMechanicalClick(now, 1600, 0.4);
-    this.playMechanicalClick(now + 0.5, 800, 0.6);
-    this.playMechanicalClick(now + 0.55, 1200, 0.5);
-    this.playMechanicalClick(now + 1.05, 2200, 0.55);
-    this.playMechanicalClick(now + 1.15, 1600, 0.65);
+
+    // Deep 12ga chest punch
+    const sub = ctx.createOscillator();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(120, now);
+    sub.frequency.exponentialRampToValueAtTime(22, now + 0.34);
+
+    const subGain = ctx.createGain();
+    subGain.gain.setValueAtTime(1.6, now);
+    subGain.gain.exponentialRampToValueAtTime(0.001, now + 0.38);
+
+    sub.connect(subGain);
+    subGain.connect(ctx.destination);
+    sub.start(now);
+    sub.stop(now + 0.4);
+
+    // Wide, gritty powder blast (slower decay than a rifle crack)
+    const size = ctx.sampleRate * 0.4;
+    const buf = ctx.createBuffer(1, size, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < size; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.055));
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(3200, now);
+    filter.frequency.exponentialRampToValueAtTime(420, now + 0.4);
+
+    const gain = ctx.createGain();
+    gain.gain.setValueAtTime(1.3, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.42);
+
+    src.connect(filter);
+    filter.connect(gain);
+    gain.connect(ctx.destination);
+    src.start(now);
+  }
+
+  // --- Discrete reload cues ---------------------------------------------------
+  // A reload is a sequence of distinct mechanical events, not one audio blob.
+  // WeaponManager fires these individually as the reload animation reaches each
+  // phase, so the sound always lands on the matching hand movement.
+
+  /** Magazine catch paddle being slapped. */
+  public playMagRelease(): void {
+    if (this.isMuted) return;
+    const now = this.initContext().currentTime;
+    this.playMechanicalClick(now, 2400, 0.35);
+  }
+
+  /** Empty magazine stripping free of the well and tumbling away. */
+  public playMagOut(): void {
+    if (this.isMuted) return;
+    const now = this.initContext().currentTime;
+    this.playMechanicalClick(now, 900, 0.4);
+    this.playMechanicalClick(now + 0.07, 1300, 0.22);
+  }
+
+  /** Fresh magazine rocked in and seated — the heavy thunk. */
+  public playMagIn(): void {
+    if (this.isMuted) return;
+    const now = this.initContext().currentTime;
+    this.playMechanicalClick(now, 700, 0.55);
+    this.playMechanicalClick(now + 0.05, 480, 0.5);
+    this.playMechanicalClick(now + 0.12, 1500, 0.3);
+  }
+
+  /**
+   * Plays the real recorded magazine-reload take covering the whole cycle.
+   * Returns false when the sample is missing, so the caller can fall back to the
+   * individually-timed synthesized cues instead.
+   */
+  public playReloadCycle(): boolean {
+    if (this.isMuted) return true;
+    return this.playSample('reload', 0.9);
+  }
+
+  /** Charging handle yanked back and released onto a fresh round. */
+  public playBoltRack(): void {
+    if (this.isMuted) return;
+    const now = this.initContext().currentTime;
+    this.playMechanicalClick(now, 1500, 0.45);
+    this.playMechanicalClick(now + 0.11, 2600, 0.6);
+  }
+
+  /** One shell thumbed into the shotgun's tube magazine. */
+  public playShellInsert(): void {
+    if (this.isMuted) return;
+    const now = this.initContext().currentTime;
+    this.playMechanicalClick(now, 1150, 0.3);
+    this.playMechanicalClick(now + 0.06, 820, 0.22);
+  }
+
+  /** Forend racked back and slammed forward — the classic ka-chunk. */
+  public playPumpRack(): void {
+    if (this.isMuted) return;
+    const now = this.initContext().currentTime;
+    this.playMechanicalClick(now, 780, 0.5);
+    this.playMechanicalClick(now + 0.14, 1050, 0.62);
   }
 
   public playSwapSound(): void {

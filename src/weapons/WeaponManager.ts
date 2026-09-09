@@ -20,6 +20,14 @@ export interface WeaponData {
   adsOffset: THREE.Vector3;
   idleOffset: THREE.Vector3;
   recoilForce: { posZ: number; rotX: number };
+  /** Seconds for a full reload cycle — drives both the animation and the audio cues. */
+  reloadTime: number;
+  /** 'mag' = detach/insert/charge cycle. 'shells' = thumb rounds into a tube, then rack. */
+  reloadStyle: 'mag' | 'shells';
+  /** Projectiles per trigger pull (buckshot). Defaults to 1. */
+  pellets?: number;
+  /** Cone half-angle in NDC units applied to pellets beyond the first. */
+  pelletSpread?: number;
 }
 
 export class WeaponManager {
@@ -47,7 +55,9 @@ export class WeaponManager {
       damage: 48,
       idleOffset: new THREE.Vector3(0.18, -0.20, -0.26),
       adsOffset: new THREE.Vector3(0.0, -0.142, -0.18),
-      recoilForce: { posZ: 0.052, rotX: 0.08 }
+      recoilForce: { posZ: 0.052, rotX: 0.08 },
+      reloadTime: 2.0,
+      reloadStyle: 'mag'
     },
     {
       name: 'TACTICAL GHOST',
@@ -60,7 +70,26 @@ export class WeaponManager {
       damage: 36,
       idleOffset: new THREE.Vector3(0.13, -0.15, -0.24),
       adsOffset: new THREE.Vector3(0.0, -0.055, -0.18),
-      recoilForce: { posZ: 0.038, rotX: 0.06 }
+      recoilForce: { posZ: 0.038, rotX: 0.06 },
+      reloadTime: 1.9,
+      reloadStyle: 'mag'
+    },
+    {
+      name: 'BREACHER 12G',
+      fireMode: 'PUMP // 12 GAUGE BUCK',
+      isAuto: false,
+      fireRate: 1.2,
+      magSize: 6,
+      currentAmmo: 6,
+      reserveAmmo: 30,
+      damage: 22, // per pellet — 8 pellets on target is a one-shot kill up close
+      idleOffset: new THREE.Vector3(0.17, -0.19, -0.24),
+      adsOffset: new THREE.Vector3(0.0, -0.115, -0.16),
+      recoilForce: { posZ: 0.085, rotX: 0.14 },
+      reloadTime: 2.8,
+      reloadStyle: 'shells',
+      pellets: 8,
+      pelletSpread: 0.055
     }
   ];
 
@@ -72,7 +101,6 @@ export class WeaponManager {
   public dummyManager: DummyManager;
 
   private raycaster: THREE.Raycaster = new THREE.Raycaster();
-  private screenCenter: THREE.Vector2 = new THREE.Vector2(0, 0);
 
   // Recoil spring
   private recoilPos = new THREE.Vector3();
@@ -88,6 +116,17 @@ export class WeaponManager {
   private flashTimer = 0;
   private reloadTimer = 0;
   private canFireSemi = true;
+
+  // Reload choreography: gun + left-hand keyframes, with audio cues fired on the
+  // exact phase boundary they belong to instead of one canned reload blob.
+  private reloadDuration = 1;
+  private reloadCues: { t: number; play: () => void }[] = [];
+  private nextReloadCue = 0;
+  private reloadAnimOffset = new THREE.Vector3();
+  private reloadAnimRot = new THREE.Euler();
+  private reloadArmOffset = new THREE.Vector3();
+  private reloadArmRot = new THREE.Euler();
+  private boltPull = 0;
 
   // Valorant-style Weapon Switch State Machine
   private swapState: 'idle' | 'holster' | 'equip' = 'idle';
@@ -108,6 +147,7 @@ export class WeaponManager {
   private readonly _rayDir = new THREE.Vector3();
   private readonly _targetPoint = new THREE.Vector3();
   private readonly _normalFallback = new THREE.Vector3(0, 1, 0);
+  private readonly _shotPoint = new THREE.Vector2(0, 0);
 
   // Events
   public onAmmoChange?: (current: number, reserve: number, name: string, mode: string) => void;
@@ -132,10 +172,12 @@ export class WeaponManager {
     // Build initial 3D rigs
     const akRig = WeaponModels.createRifleRig();
     const pistolRig = WeaponModels.createPistolRig();
+    const shotgunRig = WeaponModels.createRifleRig(); // placeholder until the GLB lands
 
-    this.weaponRigs.push(akRig, pistolRig);
+    this.weaponRigs.push(akRig, pistolRig, shotgunRig);
     this.viewmodelContainer.add(akRig.root);
     this.viewmodelContainer.add(pistolRig.root);
+    this.viewmodelContainer.add(shotgunRig.root);
 
     this.selectWeapon(0, false);
   }
@@ -190,6 +232,36 @@ export class WeaponManager {
       console.warn('Failed to load pistol.glb model, using procedural fallback:', err);
     }
 
+    onProgress?.('LOADING 12-GAUGE BREACHING SHOTGUN...');
+    try {
+      const loader = new GLTFLoader();
+      const shotgunGltf = await loader.loadAsync('/models/shotgun.glb');
+
+      const realShotgunRig = WeaponModels.createRealShotgunRig(shotgunGltf.scene);
+
+      const oldRig = this.weaponRigs[2];
+      if (oldRig) {
+        this.viewmodelContainer.remove(oldRig.root);
+      }
+
+      this.weaponRigs[2] = realShotgunRig;
+      this.viewmodelContainer.add(realShotgunRig.root);
+      realShotgunRig.root.visible = (this.currentWeaponIndex === 2);
+
+      onProgress?.('BREACHER 12G EQUIPPED');
+    } catch (err) {
+      console.warn('Failed to load shotgun.glb model, using procedural fallback:', err);
+    }
+
+    await this.soundEngine.loadSamples(
+      {
+        ak47: '/sounds/ak47.mp3',
+        shotgun: '/sounds/shotgun.mp3',
+        reload: '/sounds/reload.mp3'
+      },
+      onProgress
+    );
+
     onProgress?.('DEPLOYING TACTICAL COMBAT DUMMIES...');
     await this.dummyManager.loadCharacterModel();
   }
@@ -204,6 +276,7 @@ export class WeaponManager {
     if (index === this.currentWeaponIndex && this.swapState === 'idle') return;
     if (this.swapState === 'holster' && this.pendingWeaponIndex === index) return;
 
+    if (this.isReloading) this.clearReloadAnim(this.weaponRigs[this.currentWeaponIndex]);
     this.isReloading = false;
     this.isSwapping = true;
     this.pendingWeaponIndex = index;
@@ -225,12 +298,18 @@ export class WeaponManager {
     // 1. Weapon swap inputs (Keys 1, 2, Q quick-switch, and Mouse Scroll Wheel)
     if (this.input.isKeyPressed('Digit1')) this.selectWeapon(0);
     if (this.input.isKeyPressed('Digit2')) this.selectWeapon(1);
+    if (this.input.isKeyPressed('Digit3')) this.selectWeapon(2);
     if (this.input.isKeyPressed('KeyQ')) {
-      this.selectWeapon(this.previousWeaponIndex === this.currentWeaponIndex ? (this.currentWeaponIndex === 0 ? 1 : 0) : this.previousWeaponIndex);
+      this.selectWeapon(
+        this.previousWeaponIndex === this.currentWeaponIndex
+          ? (this.currentWeaponIndex + 1) % this.weapons.length
+          : this.previousWeaponIndex
+      );
     }
     const wheel = this.input.consumeWheelDelta();
     if (wheel !== 0) {
-      this.selectWeapon(this.currentWeaponIndex === 0 ? 1 : 0);
+      const n = this.weapons.length;
+      this.selectWeapon((this.currentWeaponIndex + (wheel > 0 ? 1 : n - 1)) % n);
     }
 
     // 2. Handle ADS
@@ -266,6 +345,13 @@ export class WeaponManager {
 
     if (this.isReloading) {
       this.reloadTimer -= delta;
+      const t = Math.min(1, Math.max(0, 1 - this.reloadTimer / this.reloadDuration));
+
+      while (this.nextReloadCue < this.reloadCues.length && t >= this.reloadCues[this.nextReloadCue].t) {
+        this.reloadCues[this.nextReloadCue++].play();
+      }
+      this.updateReloadAnim(t, weapon, rig);
+
       if (this.reloadTimer <= 0) {
         this.completeReload();
       }
@@ -370,16 +456,26 @@ export class WeaponManager {
     this.currentOffset.lerp(this.targetOffset, lerpSpeed * delta);
 
     this.viewmodelContainer.position.set(
-      this.currentOffset.x + this.recoilPos.x + bobX + this.swapAnimOffset.x,
-      this.currentOffset.y + this.recoilPos.y - (this.isReloading ? 0.1 : 0) + this.swapAnimOffset.y + bobY,
-      this.currentOffset.z + this.recoilPos.z + this.swapAnimOffset.z
+      this.currentOffset.x + this.recoilPos.x + bobX + this.swapAnimOffset.x + this.reloadAnimOffset.x,
+      this.currentOffset.y + this.recoilPos.y + this.swapAnimOffset.y + bobY + this.reloadAnimOffset.y,
+      this.currentOffset.z + this.recoilPos.z + this.swapAnimOffset.z + this.reloadAnimOffset.z
     );
 
     this.viewmodelContainer.rotation.set(
-      this.recoilRot.x + this.swapAnimRot.x,
-      this.recoilRot.y + this.swapAnimRot.y,
-      this.recoilRot.z + (this.isReloading ? -0.25 : 0) + this.swapAnimRot.z
+      this.recoilRot.x + this.swapAnimRot.x + this.reloadAnimRot.x,
+      this.recoilRot.y + this.swapAnimRot.y + this.reloadAnimRot.y,
+      this.recoilRot.z + this.swapAnimRot.z + this.reloadAnimRot.z
     );
+
+    // Left hand leaves the handguard during a reload; the rig arms are plain groups
+    // so the whole arm is driven as one piece.
+    rig.leftArm.position.copy(this.reloadArmOffset);
+    rig.leftArm.rotation.copy(this.reloadArmRot);
+
+    // Charging handle / bolt carrier travel (shared with the per-shot cycling kick)
+    if (rig.slideOrBolt && this.boltPull > 0) {
+      rig.slideOrBolt.position.z = this.boltPull;
+    }
 
     // 9. Update effects & targets
     this.tracerManager.update(delta);
@@ -405,6 +501,8 @@ export class WeaponManager {
 
     if (this.currentWeaponIndex === 0) {
       this.soundEngine.playRifleShot();
+    } else if (this.currentWeaponIndex === 2) {
+      this.soundEngine.playShotgunShot();
     } else {
       this.soundEngine.playPistolShot();
     }
@@ -440,57 +538,32 @@ export class WeaponManager {
     this.tracerManager.spawnShell(this._chamberWorld, this.camera.rotation);
     this.tracerManager.spawnMuzzleSmoke(this._muzzleWorld, this.camera.rotation);
 
-    // Raycast hit detection from screen center
-    this.raycaster.setFromCamera(this.screenCenter, this.camera);
-
+    // Buckshot fires a cone of pellets; everything else is a single centred round.
+    const pellets = weapon.pellets ?? 1;
+    const spread = weapon.pelletSpread ?? 0;
     let hasHit = false;
+    let headshot = false;
 
-    // 1. Test Human Combat Dummies First
-    const dummyHits = this.raycaster.intersectObjects(this.dummyManager.hitboxMeshes, false);
-
-    if (dummyHits.length > 0) {
-      const hit = dummyHits[0];
-      this.totalHits++;
-      hasHit = true;
-
-      const res = this.dummyManager.registerHit(hit.object as THREE.Mesh, hit.point, weapon.damage);
-      this.tracerManager.spawnTracer(this._muzzleWorld, hit.point);
-      const normal = hit.face ? hit.face.normal : this._normalFallback;
-      this.decalManager.spawnBulletHole(hit.point, normal);
-      this.triggerHitmarker(res.isHeadshot);
-    } else {
-      // 2. Test Steel Plate Silhouette Targets
-      const targetHits = this.raycaster.intersectObjects(this.targetManager.targetMeshes, false);
-
-      if (targetHits.length > 0) {
-        const hit = targetHits[0];
-        this.totalHits++;
-        hasHit = true;
-
-        // Register target hit & spring knockback
-        this.targetManager.registerHit(hit.object as THREE.Mesh, hit.point);
-
-        // Spawn tracer to target
-        this.tracerManager.spawnTracer(this._muzzleWorld, hit.point);
-
-        // Trigger on-screen Hitmarker
-        this.triggerHitmarker(false);
+    for (let p = 0; p < pellets; p++) {
+      if (p === 0 || spread === 0) {
+        this._shotPoint.set(0, 0);
       } else {
-        // 3. Test World Obstacles / Ground (BVH Accelerated)
-        const worldHits = this.raycaster.intersectObject(this.worldCollider, false);
-
-        if (worldHits.length > 0) {
-          const hit = worldHits[0];
-          const normal = hit.face ? hit.face.normal : this._normalFallback;
-          this.tracerManager.spawnTracer(this._muzzleWorld, hit.point);
-          this.decalManager.spawnBulletHole(hit.point, normal);
-        } else {
-          // Fly down-range into distance
-          this._rayDir.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
-          this._targetPoint.copy(this.camera.position).addScaledVector(this._rayDir, 80);
-          this.tracerManager.spawnTracer(this._muzzleWorld, this._targetPoint);
-        }
+        // Uniform disc sample so pellets don't clump on the centre
+        const a = Math.random() * Math.PI * 2;
+        const r = Math.sqrt(Math.random()) * spread;
+        this._shotPoint.set(Math.cos(a) * r, Math.sin(a) * r);
       }
+
+      const res = this.tracePellet(weapon);
+      if (res.hit) {
+        hasHit = true;
+        headshot = headshot || res.headshot;
+      }
+    }
+
+    if (hasHit) {
+      this.totalHits++;
+      this.triggerHitmarker(headshot);
     }
 
     // Telemetry Graph Callback for Recoil Pattern & Spread Dispersion
@@ -514,6 +587,49 @@ export class WeaponManager {
     }
   }
 
+  /**
+   * Traces one projectile through the same priority chain as before
+   * (dummies -> steel plates -> world -> downrange) using the aim point in
+   * this._shotPoint, and spawns its tracer/decal. Called once per pellet.
+   */
+  private tracePellet(weapon: WeaponData): { hit: boolean; headshot: boolean } {
+    this.raycaster.setFromCamera(this._shotPoint, this.camera);
+
+    // 1. Human Combat Dummies
+    const dummyHits = this.raycaster.intersectObjects(this.dummyManager.hitboxMeshes, false);
+    if (dummyHits.length > 0) {
+      const hit = dummyHits[0];
+      const res = this.dummyManager.registerHit(hit.object as THREE.Mesh, hit.point, weapon.damage);
+      this.tracerManager.spawnTracer(this._muzzleWorld, hit.point);
+      this.decalManager.spawnBulletHole(hit.point, hit.face ? hit.face.normal : this._normalFallback);
+      return { hit: true, headshot: res.isHeadshot };
+    }
+
+    // 2. Steel Plate Silhouette Targets
+    const targetHits = this.raycaster.intersectObjects(this.targetManager.targetMeshes, false);
+    if (targetHits.length > 0) {
+      const hit = targetHits[0];
+      this.targetManager.registerHit(hit.object as THREE.Mesh, hit.point);
+      this.tracerManager.spawnTracer(this._muzzleWorld, hit.point);
+      return { hit: true, headshot: false };
+    }
+
+    // 3. World Obstacles / Ground (BVH Accelerated)
+    const worldHits = this.raycaster.intersectObject(this.worldCollider, false);
+    if (worldHits.length > 0) {
+      const hit = worldHits[0];
+      this.tracerManager.spawnTracer(this._muzzleWorld, hit.point);
+      this.decalManager.spawnBulletHole(hit.point, hit.face ? hit.face.normal : this._normalFallback);
+      return { hit: false, headshot: false };
+    }
+
+    // 4. Fly down-range into the distance
+    this._rayDir.copy(this.raycaster.ray.direction);
+    this._targetPoint.copy(this.camera.position).addScaledVector(this._rayDir, 80);
+    this.tracerManager.spawnTracer(this._muzzleWorld, this._targetPoint);
+    return { hit: false, headshot: false };
+  }
+
   private triggerHitmarker(isHeadshot = false): void {
     const hm = document.getElementById('hitmarker');
     if (!hm) return;
@@ -530,14 +646,144 @@ export class WeaponManager {
     }, isHeadshot ? 180 : 120);
   }
 
+  /** Linear keyframe sampler: pts are [t, value] pairs in ascending t over 0..1. */
+  private static kf(t: number, pts: number[][]): number {
+    if (t <= pts[0][0]) return pts[0][1];
+    for (let i = 1; i < pts.length; i++) {
+      if (t <= pts[i][0]) {
+        const [t0, v0] = pts[i - 1];
+        const [t1, v1] = pts[i];
+        const k = t1 === t0 ? 1 : (t - t0) / (t1 - t0);
+        // Smoothstep between keys so the hands ease instead of snapping
+        return v0 + (v1 - v0) * (k * k * (3 - 2 * k));
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
+
+  /**
+   * Drives the reload pose for the current normalized progress t (0..1).
+   *
+   * Magazine cycle: the gun cants inboard and drops out of the sightline while the
+   * support hand strips the empty mag, disappears below frame to fetch a fresh one,
+   * rocks it in with a seating jolt, then travels up to rack the charging handle.
+   *
+   * Shell cycle: the shotgun rolls over to expose the loading port, the support hand
+   * thumbs rounds in one at a time, then racks the forend to chamber.
+   */
+  private updateReloadAnim(t: number, weapon: WeaponData, rig: WeaponRig): void {
+    const kf = WeaponManager.kf;
+
+    if (weapon.reloadStyle === 'shells') {
+      this.reloadAnimOffset.set(
+        kf(t, [[0, 0], [0.14, 0.05], [0.88, 0.05], [1, 0]]),
+        kf(t, [[0, 0], [0.14, -0.12], [0.86, -0.12], [0.92, -0.03], [1, 0]]),
+        kf(t, [[0, 0], [0.14, 0.04], [0.88, 0.02], [1, 0]])
+      );
+      this.reloadAnimRot.set(
+        kf(t, [[0, 0], [0.14, 0.22], [0.86, 0.2], [1, 0]]),
+        kf(t, [[0, 0], [0.14, -0.3], [0.86, -0.28], [1, 0]]),
+        kf(t, [[0, 0], [0.14, -0.62], [0.86, -0.6], [0.93, 0.08], [1, 0]])
+      );
+
+      // Support hand shuttles between the shell carrier and the loading port
+      const shells = Math.max(1, weapon.magSize - 1);
+      const feedStart = 0.18;
+      const feedEnd = 0.82;
+      const cycle = ((t - feedStart) / ((feedEnd - feedStart) / shells)) % 1;
+      const inFeed = t > feedStart && t < feedEnd;
+      const reach = inFeed ? Math.sin(Math.max(0, cycle) * Math.PI) : 0;
+
+      this.reloadArmOffset.set(-0.02 * reach, -0.16 + 0.16 * reach, 0.12 * reach);
+      this.reloadArmRot.set(0.5 * reach, 0, 0);
+
+      // Forend rack on the tail end
+      const rack = kf(t, [[0.86, 0], [0.92, 1], [0.98, 0], [1, 0]]);
+      this.reloadArmOffset.z += 0.09 * rack;
+      this.boltPull = 0.05 * rack;
+      return;
+    }
+
+    // --- Magazine cycle ---
+    this.reloadAnimOffset.set(
+      kf(t, [[0, 0], [0.16, 0.07], [0.62, 0.06], [0.8, 0.02], [1, 0]]),
+      kf(t, [[0, 0], [0.16, -0.16], [0.55, -0.19], [0.66, -0.08], [0.72, -0.12], [1, 0]]),
+      kf(t, [[0, 0], [0.16, 0.06], [0.7, 0.04], [1, 0]])
+    );
+    this.reloadAnimRot.set(
+      kf(t, [[0, 0], [0.16, 0.46], [0.6, 0.44], [0.68, 0.18], [1, 0]]),
+      kf(t, [[0, 0], [0.16, -0.34], [0.66, -0.3], [1, 0]]),
+      kf(t, [[0, 0], [0.16, -0.58], [0.6, -0.55], [0.68, -0.2], [1, 0]])
+    );
+
+    // Support hand: strip mag -> below frame -> seat new mag -> charging handle
+    this.reloadArmOffset.set(
+      kf(t, [[0, 0], [0.18, -0.03], [0.34, -0.06], [0.5, -0.04], [0.66, 0], [0.82, 0.04], [1, 0]]),
+      kf(t, [[0, 0], [0.18, -0.1], [0.34, -0.34], [0.5, -0.3], [0.64, -0.02], [0.7, -0.06], [0.82, 0.05], [1, 0]]),
+      kf(t, [[0, 0], [0.18, 0.14], [0.34, 0.2], [0.5, 0.18], [0.66, 0.12], [0.78, 0.16], [0.88, 0.24], [1, 0]])
+    );
+    this.reloadArmRot.set(
+      kf(t, [[0, 0], [0.34, 0.6], [0.62, 0.35], [0.82, -0.1], [1, 0]]),
+      0,
+      kf(t, [[0, 0], [0.34, -0.2], [0.7, -0.1], [1, 0]])
+    );
+
+    // Charging handle travel at the end of the cycle
+    this.boltPull = 0.055 * kf(t, [[0.78, 0], [0.85, 1], [0.9, 0], [1, 0]]);
+    void rig;
+  }
+
+  private clearReloadAnim(rig: WeaponRig): void {
+    this.reloadAnimOffset.set(0, 0, 0);
+    this.reloadAnimRot.set(0, 0, 0);
+    this.reloadArmOffset.set(0, 0, 0);
+    this.reloadArmRot.set(0, 0, 0);
+    this.boltPull = 0;
+    rig.leftArm.position.set(0, 0, 0);
+    rig.leftArm.rotation.set(0, 0, 0);
+    if (rig.slideOrBolt) rig.slideOrBolt.position.z = 0;
+  }
+
   private startReload(): void {
+    const weapon = this.weapons[this.currentWeaponIndex];
+
     this.isReloading = true;
-    this.reloadTimer = 1.35;
-    this.soundEngine.playReloadSound();
+    this.reloadDuration = weapon.reloadTime;
+    this.reloadTimer = weapon.reloadTime;
+    this.nextReloadCue = 0;
+
+    const snd = this.soundEngine;
+
+    if (weapon.reloadStyle === 'shells') {
+      // One audible shell per round actually being fed, then the forend rack
+      const missing = Math.min(weapon.magSize - weapon.currentAmmo, weapon.reserveAmmo);
+      const cues: { t: number; play: () => void }[] = [];
+      for (let i = 0; i < missing; i++) {
+        cues.push({ t: 0.2 + (0.6 * i) / Math.max(1, missing), play: () => snd.playShellInsert() });
+      }
+      cues.push({ t: 0.88, play: () => snd.playPumpRack() });
+      this.reloadCues = cues;
+    } else {
+      // The recorded take already contains the whole mag-out/mag-in/charge sequence,
+      // so it plays as one cue; only the synthesized fallback needs phase-by-phase cues.
+      this.reloadCues = [
+        {
+          t: 0.02,
+          play: () => {
+            if (snd.playReloadCycle()) return;
+            snd.playMagRelease();
+          }
+        },
+        { t: 0.2, play: () => { if (!snd.hasSample('reload')) snd.playMagOut(); } },
+        { t: 0.6, play: () => { if (!snd.hasSample('reload')) snd.playMagIn(); } },
+        { t: 0.82, play: () => { if (!snd.hasSample('reload')) snd.playBoltRack(); } }
+      ];
+    }
   }
 
   private completeReload(): void {
     const weapon = this.weapons[this.currentWeaponIndex];
+    this.clearReloadAnim(this.weaponRigs[this.currentWeaponIndex]);
     const needed = weapon.magSize - weapon.currentAmmo;
     const toReload = Math.min(needed, weapon.reserveAmmo);
     weapon.currentAmmo += toReload;

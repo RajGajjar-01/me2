@@ -161,6 +161,57 @@ export class WeaponModels {
   }
 
   /**
+   * Builds the Authentic 3D Double-Barrel Breaching Shotgun Rig from the imported GLB asset.
+   * The source model ships ~2.07m long on its local Z, so it is scaled and re-oriented
+   * inside a holder group to sit in the operator's two-handed grip pointing down -Z.
+   */
+  public static createRealShotgunRig(shotgunScene: THREE.Group): WeaponRig {
+    const root = new THREE.Group();
+
+    shotgunScene.traverse((child) => {
+      const m = child as THREE.Mesh;
+      if (!m.isMesh) return;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      const mat = m.material as THREE.MeshStandardMaterial;
+      if (mat) {
+        mat.roughness = 0.46;
+        mat.metalness = 0.62;
+        mat.envMapIntensity = 1.1;
+        mat.needsUpdate = true;
+      }
+    });
+
+    // Holder normalizes the asset: ~0.78m barrel length, muzzle facing -Z, seated in the grip
+    const holder = new THREE.Group();
+    holder.add(shotgunScene);
+    holder.scale.setScalar(0.38);
+    holder.rotation.y = Math.PI;
+    holder.position.set(0, -0.03, -0.04);
+    root.add(holder);
+
+    // Two-handed long-gun stance reuses the rifle operator arms
+    const { leftArm, rightArm } = this.createAKArms();
+    root.add(leftArm);
+    root.add(rightArm);
+
+    const muzzlePos = new THREE.Vector3(0, 0.03, -0.56);
+    const { muzzleFlash, flashLight } = this.createMuzzleFlash(muzzlePos);
+    muzzleFlash.scale.setScalar(1.35); // 12ga blast is noticeably fatter than 7.62
+    root.add(muzzleFlash);
+
+    return {
+      root,
+      muzzleFlash,
+      flashLight,
+      chamberPos: new THREE.Vector3(0.03, 0.03, -0.02),
+      muzzlePos,
+      leftArm,
+      rightArm
+    };
+  }
+
+  /**
    * Procedural fallback rig for AK-47
    */
   public static createRifleRig(): WeaponRig {
