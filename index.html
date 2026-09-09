@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TACTICAL BUNKER // FPV CQB RANGE</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,400;0,600;0,700;1,700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="game-container">
+      <canvas id="webgl-canvas"></canvas>
+
+      <!-- In-Game Tactical HUD -->
+      <div id="hud" class="hidden">
+        <!-- Reticle / Crosshair -->
+        <div id="crosshair-container">
+          <div class="reticle-line top"></div>
+          <div class="reticle-line bottom"></div>
+          <div class="reticle-line left"></div>
+          <div class="reticle-line right"></div>
+          <div class="reticle-center"></div>
+          <div id="hitmarker" class="hitmarker-hidden">
+            <div class="hit-slash tl"></div>
+            <div class="hit-slash tr"></div>
+            <div class="hit-slash bl"></div>
+            <div class="hit-slash br"></div>
+          </div>
+        </div>
+
+        <!-- Top Range Status Bar -->
+        <div id="top-bar">
+          <div class="badge live-badge"><span class="pulse-dot"></span> LIVE RANGE</div>
+          <div class="range-metric">
+            <span class="metric-label">SECTOR</span>
+            <span class="metric-val">SECTOR-07 (OUTDOOR)</span>
+          </div>
+          <div class="range-metric">
+            <span class="metric-label">HITS</span>
+            <span class="metric-val" id="hits-counter">0</span>
+          </div>
+          <div class="range-metric">
+            <span class="metric-label">ACCURACY</span>
+            <span class="metric-val" id="accuracy-counter">100%</span>
+          </div>
+          <div class="range-metric">
+            <span class="metric-label">FPS</span>
+            <span class="metric-val" id="fps-counter">60</span>
+          </div>
+        </div>
+
+        <!-- Bottom Left: Operator Status -->
+        <div id="bottom-left">
+          <div class="operator-tag">OPERATOR // SPEC-OPS</div>
+          <div class="stamina-wrapper">
+            <div class="stamina-label">STAMINA</div>
+            <div class="stamina-track">
+              <div id="stamina-bar" style="width: 100%;"></div>
+            </div>
+          </div>
+          <div class="posture-indicator">
+            <span id="posture-text">STAND</span>
+            <span class="divider">|</span>
+            <span id="speed-text">0.0 M/S</span>
+          </div>
+        </div>
+
+        <!-- Bottom Right: Ammo & Weapon -->
+        <div id="bottom-right">
+          <div class="weapon-info">
+            <div id="weapon-name">M4A1 CARBINE</div>
+            <div id="fire-mode">AUTO // 5.56x45mm</div>
+          </div>
+          <div class="ammo-display">
+            <span id="ammo-current">30</span>
+            <span class="ammo-slash">/</span>
+            <span id="ammo-reserve">120</span>
+          </div>
+          <div class="weapon-slots">
+            <div class="slot active" id="slot-primary">[1] AK-47</div>
+            <div class="slot" id="slot-secondary">[2] GHOST</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Start / Pause / Instructions Overlay -->
+      <div id="overlay-screen">
+        <div class="overlay-modal">
+          <div class="bunker-stencil">SECTOR 07 // OPEN-AIR LIVE FIRE COMPOUND</div>
+          <h1 class="glitch-title" data-text="OUTDOOR COMBAT RANGE">OUTDOOR COMBAT RANGE</h1>
+          <p class="subtitle">OPEN-AIR ADVANCED TACTICAL WEAPON TRAINING FACILITY</p>
+          
+          <div class="controls-grid">
+            <div class="ctrl-card">
+              <span class="key">WASD</span>
+              <span class="action">Movement</span>
+            </div>
+            <div class="ctrl-card">
+              <span class="key">SHIFT</span>
+              <span class="action">Sprint</span>
+            </div>
+            <div class="ctrl-card">
+              <span class="key">SPACE</span>
+              <span class="action">Jump / Vault</span>
+            </div>
+            <div class="ctrl-card">
+              <span class="key">MOUSE 1</span>
+              <span class="action">Fire</span>
+            </div>
+            <div class="ctrl-card">
+              <span class="key">MOUSE 2</span>
+              <span class="action">Aim (ADS)</span>
+            </div>
+            <div class="ctrl-card">
+              <span class="key">R</span>
+              <span class="action">Reload</span>
+            </div>
+            <div class="ctrl-card">
+              <span class="key">1 / 2 / Q / SCROLL</span>
+              <span class="action">Valorant Weapon Swap</span>
+            </div>
+            <div class="ctrl-card">
+              <span class="key">ESC</span>
+              <span class="action">Pause / Unlock</span>
+            </div>
+          </div>
+
+          <!-- Loading State -->
+          <div id="loader-container">
+            <div class="loader-header">
+              <span id="loader-status" class="loader-status-text">INITIALIZING ENGINE...</span>
+              <span id="loader-percent" class="loader-percent-text">0%</span>
+            </div>
+            <div class="loader-track">
+              <div id="loader-fill"></div>
+            </div>
+          </div>
+
+          <button id="start-btn" class="tactical-btn disabled" disabled>
+            <span class="btn-glow"></span>
+            <span class="btn-text" id="start-btn-text">LOADING ASSETS...</span>
+          </button>
+          <div class="opt-note">HARDWARE ACCELERATED // THREE-MESH-BVH PHYSICS</div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,983 @@
+:root {
+  --bg-dark: #090a0d;
+  --amber-primary: #ff9d00;
+  --amber-dim: rgba(255, 157, 0, 0.25);
+  --cyan-accent: #00e5ff;
+  --red-alert: #ff3344;
+  --text-primary: #e6ebf2;
+  --text-muted: #758092;
+  --font-display: 'Chakra Petch', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+body, html {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--bg-dark);
+  font-family: var(--font-display);
+  color: var(--text-primary);
+}
+
+#game-container {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+}
+
+#webgl-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ==================== TACTICAL HUD ==================== */
+#hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+#hud.hidden {
+  opacity: 0;
+}
+
+/* Reticle / Crosshair */
+#crosshair-container {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  pointer-events: none;
+  transition: transform 0.05s ease-out;
+}
+
+.reticle-center {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  background-color: rgba(255, 255, 255, 0.85);
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgba(0, 229, 255, 0.8);
+}
+
+.reticle-line {
+  position: absolute;
+  background-color: rgba(0, 229, 255, 0.85);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.5);
+  transition: all 0.08s ease;
+}
+
+.reticle-line.top {
+  width: 2px;
+  height: 8px;
+  top: 2px;
+  left: calc(50% - 1px);
+}
+
+.reticle-line.bottom {
+  width: 2px;
+  height: 8px;
+  bottom: 2px;
+  left: calc(50% - 1px);
+}
+
+.reticle-line.left {
+  height: 2px;
+  width: 8px;
+  left: 2px;
+  top: calc(50% - 1px);
+}
+
+.reticle-line.right {
+  height: 2px;
+  width: 8px;
+  right: 2px;
+  top: calc(50% - 1px);
+}
+
+/* Crosshair spread states */
+.spread-aim #crosshair-container {
+  opacity: 0.15;
+}
+
+.spread-fire .reticle-line.top { transform: translateY(-4px); }
+.spread-fire .reticle-line.bottom { transform: translateY(4px); }
+.spread-fire .reticle-line.left { transform: translateX(-4px); }
+.spread-fire .reticle-line.right { transform: translateX(4px); }
+
+/* Hitmarker */
+#hitmarker {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 28px;
+  height: 28px;
+  opacity: 1;
+  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+}
+
+#hitmarker.hitmarker-hidden {
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.6);
+}
+
+.hit-slash {
+  position: absolute;
+  width: 8px;
+  height: 2px;
+  background: var(--red-alert);
+  box-shadow: 0 0 6px var(--red-alert);
+}
+
+.hit-slash.tl { top: 3px; left: 3px; transform: rotate(45deg); }
+.hit-slash.tr { top: 3px; right: 3px; transform: rotate(-45deg); }
+.hit-slash.bl { bottom: 3px; left: 3px; transform: rotate(-45deg); }
+.hit-slash.br { bottom: 3px; right: 3px; transform: rotate(45deg); }
+
+#hitmarker.headshot {
+  transform: translate(-50%, -50%) scale(1.35);
+}
+
+#hitmarker.headshot .hit-slash {
+  background: #ff1133;
+  box-shadow: 0 0 12px #ff1133;
+  width: 11px;
+  height: 3px;
+}
+
+/* Top Status Bar */
+#top-bar {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  background: rgba(9, 10, 13, 0.75);
+  border: 1px solid rgba(255, 157, 0, 0.2);
+  padding: 8px 24px;
+  border-radius: 4px;
+  backdrop-filter: blur(8px);
+}
+
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.live-badge {
+  color: var(--amber-primary);
+}
+
+.pulse-dot {
+  width: 6px;
+  height: 6px;
+  background-color: var(--amber-primary);
+  border-radius: 50%;
+  animation: pulse 1.5s infinite;
+}
+
+@keyframes pulse {
+  0% { transform: scale(0.9); opacity: 0.7; }
+  50% { transform: scale(1.3); opacity: 1; }
+  100% { transform: scale(0.9); opacity: 0.7; }
+}
+
+.range-metric {
+  display: flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.metric-label {
+  font-size: 9px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+.metric-val {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--cyan-accent);
+}
+
+/* Bottom Left: Operator Status */
+#bottom-left {
+  position: absolute;
+  bottom: 32px;
+  left: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.operator-tag {
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1.5px;
+}
+
+.stamina-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.stamina-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stamina-track {
+  width: 140px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+#stamina-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan-accent), #4facfe);
+  box-shadow: 0 0 6px rgba(0, 229, 255, 0.4);
+  transition: width 0.1s linear;
+}
+
+.posture-indicator {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-muted);
+  display: flex;
+  gap: 8px;
+}
+
+.posture-indicator .divider {
+  color: rgba(255, 255, 255, 0.15);
+}
+
+/* Bottom Right: Ammo & Weapon */
+#bottom-right {
+  position: absolute;
+  bottom: 32px;
+  right: 36px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.weapon-info {
+  text-align: right;
+}
+
+#weapon-name {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: var(--amber-primary);
+  text-shadow: 0 0 10px var(--amber-dim);
+}
+
+#fire-mode {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+}
+
+.ammo-display {
+  display: flex;
+  align-items: baseline;
+  font-family: var(--font-mono);
+  line-height: 0.9;
+}
+
+#ammo-current {
+  font-size: 54px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -2px;
+}
+
+.ammo-slash {
+  font-size: 28px;
+  color: var(--text-muted);
+  margin: 0 6px;
+}
+
+#ammo-reserve {
+  font-size: 24px;
+  color: var(--text-muted);
+}
+
+.weapon-slots {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.slot {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  border-radius: 2px;
+  letter-spacing: 1px;
+  transition: all 0.2s;
+}
+
+.slot.active {
+  background: var(--amber-dim);
+  border-color: var(--amber-primary);
+  color: var(--amber-primary);
+  box-shadow: 0 0 8px var(--amber-dim);
+}
+
+/* ==================== START / OVERLAY SCREEN ==================== */
+#overlay-screen {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: radial-gradient(circle at center, rgba(14, 18, 26, 0.88) 0%, rgba(5, 7, 10, 0.98) 100%);
+  backdrop-filter: blur(12px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 100;
+  transition: opacity 0.35s ease, visibility 0.35s ease;
+}
+
+#overlay-screen.hidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.overlay-modal {
+  max-width: 640px;
+  width: 90%;
+  background: rgba(13, 16, 23, 0.9);
+  border: 1px solid rgba(255, 157, 0, 0.3);
+  padding: 40px;
+  border-radius: 6px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 30px rgba(255, 157, 0, 0.08);
+  text-align: center;
+}
+
+.bunker-stencil {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: var(--amber-primary);
+  margin-bottom: 8px;
+}
+
+.glitch-title {
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  margin-bottom: 4px;
+  color: #fff;
+  text-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
+}
+
+.subtitle {
+  font-size: 12px;
+  letter-spacing: 2px;
+  color: var(--text-muted);
+  margin-bottom: 28px;
+}
+
+.controls-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 30px;
+  text-align: left;
+}
+
+.ctrl-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 10px 12px;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.ctrl-card .key {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--cyan-accent);
+}
+
+.ctrl-card .action {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+/* Loader Progress Bar */
+#loader-container {
+  width: 100%;
+  margin-bottom: 22px;
+  text-align: left;
+}
+
+.loader-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.loader-status-text {
+  color: var(--cyan-accent);
+  letter-spacing: 1.5px;
+}
+
+.loader-percent-text {
+  color: var(--amber-primary);
+  font-weight: 700;
+}
+
+.loader-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+#loader-fill {
+  width: 0%;
+  height: 100%;
+  background: linear-gradient(90deg, var(--cyan-accent), var(--amber-primary));
+  box-shadow: 0 0 10px rgba(0, 229, 255, 0.7);
+  transition: width 0.2s ease-out;
+}
+
+.tactical-btn.disabled {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transform: none !important;
+}
+
+.tactical-btn {
+  position: relative;
+  width: 100%;
+  padding: 16px 32px;
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #000;
+  background: var(--amber-primary);
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: all 0.2s ease;
+  box-shadow: 0 0 20px rgba(255, 157, 0, 0.35);
+}
+
+.tactical-btn:hover {
+  background: #ffb133;
+  transform: translateY(-2px);
+  box-shadow: 0 0 30px rgba(255, 157, 0, 0.6);
+}
+
+.tactical-btn:active {
+  transform: translateY(1px);
+}
+
+.opt-note {
+  margin-top: 18px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  letter-spacing: 1.5px;
+}
+
+/* ==========================================================================
+   TACTICAL TELEMETRY & LIVE PERFORMANCE GRAPHS
+   ========================================================================== */
+#telemetry-panel {
+  position: fixed;
+  top: 24px;
+  right: 24px;
+  width: 280px;
+  background: rgba(13, 17, 23, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  border-radius: 6px;
+  padding: 12px 14px;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  z-index: 50;
+  box-sizing: border-box;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 12px rgba(56, 189, 248, 0.15);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  user-select: none;
+  pointer-events: auto;
+}
+
+#telemetry-panel.minimized {
+  transform: translateX(calc(100% + 30px));
+  opacity: 0;
+  pointer-events: none;
+}
+
+.telemetry-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 20px;
+  padding-bottom: 8px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  white-space: nowrap;
+}
+
+.telemetry-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  color: #38bdf8;
+  white-space: nowrap;
+}
+
+.telemetry-dot {
+  width: 6px;
+  height: 6px;
+  display: inline-block;
+  flex-shrink: 0;
+  background: #38bdf8;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #38bdf8;
+  animation: pulse-telemetry 1.5s infinite;
+}
+
+@keyframes pulse-telemetry {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.telemetry-toggle {
+  font-size: 9px;
+  letter-spacing: 1px;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.telemetry-toggle:hover {
+  color: #fff;
+  background: rgba(56, 189, 248, 0.2);
+  border-color: #38bdf8;
+}
+
+.telemetry-card {
+  margin-bottom: 12px;
+}
+
+.telemetry-card:last-child {
+  margin-bottom: 0;
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 16px;
+  font-size: 9px;
+  margin-bottom: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.card-label {
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.card-metric {
+  color: #38bdf8;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+#tel-frametime-canvas {
+  width: 100%;
+  height: 48px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: block;
+}
+
+.graph-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 8px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.legend-line {
+  width: 10px;
+  height: 2px;
+  display: inline-block;
+}
+
+.legend-line.green { background: #4ade80; }
+.legend-line.yellow { background: #facc15; }
+
+.radar-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#tel-dispersion-canvas {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  display: block;
+  flex-shrink: 0;
+}
+
+.radar-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex-grow: 1;
+}
+
+.r-stat-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 16px;
+  font-size: 9px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.r-lbl {
+  color: var(--text-muted);
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.r-val {
+  color: #fff;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.r-val.green {
+  color: #4ade80;
+}
+
+/* ==========================================================================
+   Screen-Space Combat HUD (Floating Damage Numbers, Target Analyzer, Kill Banner)
+   ========================================================================== */
+#combat-hud {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 60;
+  overflow: hidden;
+}
+
+#combat-text-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Valorant Floating Damage Text */
+.combat-float-num {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-mono);
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  user-select: none;
+  pointer-events: none;
+  white-space: nowrap;
+  animation: combat-float-up 0.75s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.combat-float-num.body {
+  font-size: 20px;
+  color: #fff;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 2px 8px rgba(250, 204, 21, 0.7);
+}
+
+.combat-float-num.body .dmg-val {
+  color: #fde047;
+}
+
+.combat-float-num.headshot {
+  font-size: 26px;
+  color: #ef4444;
+  text-shadow: 0 0 10px rgba(239, 68, 68, 0.9), 0 0 20px rgba(239, 68, 68, 0.6), 0 2px 4px #000;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.combat-float-num.headshot .crit-tag {
+  font-size: 11px;
+  letter-spacing: 2px;
+  padding: 2px 6px;
+  background: rgba(239, 68, 68, 0.25);
+  border: 1px solid #ef4444;
+  border-radius: 2px;
+  color: #ff8888;
+}
+
+.combat-float-num.headshot .dmg-val {
+  color: #ff3344;
+  font-weight: 900;
+}
+
+@keyframes combat-float-up {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, 0) scale(0.6);
+  }
+  15% {
+    opacity: 1;
+    transform: translate(-50%, -10px) scale(1.15);
+  }
+  35% {
+    transform: translate(-50%, -20px) scale(1.0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -48px) scale(0.85);
+  }
+}
+
+/* Tactical Target Health Analyzer (Top Center) */
+#target-analyzer {
+  position: absolute;
+  top: 70px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 290px;
+  background: rgba(10, 16, 26, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 4px;
+  padding: 8px 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+}
+
+#target-analyzer.analyzer-hidden {
+  opacity: 0;
+  transform: translateX(-50%) translateY(-10px);
+  pointer-events: none;
+}
+
+.analyzer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  color: #fff;
+  margin-bottom: 6px;
+  white-space: nowrap;
+}
+
+.analyzer-scanner-dot {
+  width: 6px;
+  height: 6px;
+  background: #38bdf8;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #38bdf8;
+  margin-right: 6px;
+  animation: pulse-dot 1s infinite alternate;
+}
+
+#analyzer-target-name {
+  color: var(--cyan-accent);
+  flex-grow: 1;
+  text-align: left;
+}
+
+#analyzer-hp-text {
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+#analyzer-hp-text.dead {
+  color: #ef4444;
+  font-weight: 800;
+}
+
+.analyzer-bar-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+#analyzer-bar-fill {
+  height: 100%;
+  background: #00ff88;
+  border-radius: 2px;
+  transition: width 0.15s ease-out, background 0.2s ease;
+  box-shadow: 0 0 6px currentColor;
+}
+
+/* Valorant-Style Kill Banner */
+#kill-banner {
+  position: absolute;
+  bottom: 175px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 28px;
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.25) 0%, rgba(10, 10, 15, 0.9) 100%);
+  border: 1px solid rgba(239, 68, 68, 0.8);
+  border-radius: 6px;
+  box-shadow: 0 0 30px rgba(239, 68, 68, 0.4), inset 0 0 15px rgba(239, 68, 68, 0.2);
+  user-select: none;
+  pointer-events: none;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+#kill-banner.kill-banner-hidden {
+  opacity: 0;
+  transform: translateX(-50%) scale(0.9);
+  pointer-events: none;
+}
+
+#kill-banner.animate-kill {
+  animation: valorant-kill-pop 1.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.kill-skull {
+  font-size: 28px;
+  color: #ff3344;
+  text-shadow: 0 0 16px #ff3344;
+  line-height: 1;
+  margin-bottom: 2px;
+}
+
+.kill-title {
+  font-family: var(--font-title);
+  font-size: 16px;
+  font-weight: 900;
+  letter-spacing: 3px;
+  color: #fff;
+  text-shadow: 0 0 10px rgba(255, 255, 255, 0.8);
+}
+
+.kill-sub {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 1.5px;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 2px;
+}
+
+@keyframes valorant-kill-pop {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.7);
+  }
+  12% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.1);
+  }
+  24% {
+    transform: translateX(-50%) scale(1.0);
+  }
+  75% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-15px) scale(0.95);
+  }
+}
+
