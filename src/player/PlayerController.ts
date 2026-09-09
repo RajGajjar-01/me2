@@ -56,6 +56,8 @@ export class PlayerController {
   // must be kept in sync with these two constants.
   private static readonly MANTLE_MAX_HEIGHT = 1.5;
   private static readonly MANTLE_DURATION = 0.35;
+  /** No mantle may finish above this world Y — see the check in tryStartMantle(). */
+  private static readonly MANTLE_MAX_WORLD_Y = 3.0;
   public isMantling = false;
   private mantleTimer = 0;
   private mantleStartPos: THREE.Vector3 = new THREE.Vector3();
@@ -291,6 +293,14 @@ export class PlayerController {
     const ledgeY = downHit.point.y;
     if (ledgeY > maxGrabY + 0.02) return false; // out of reach
     if (ledgeY < feetY + 0.15) return false; // not enough of a step to bother
+
+    // Absolute ceiling. Reach alone cannot separate the first container from a
+    // second stacked on top of it: both are the same 2.6m step, so once you are
+    // standing on one, jumping puts the next within the same 1.5m grab. Capping
+    // the world height a mantle may finish at keeps single containers climbable
+    // while stacked ones, the tower platform and the perimeter walls are not.
+    // The tower stays reachable the intended way, up its ramp.
+    if (ledgeY > PlayerController.MANTLE_MAX_WORLD_Y) return false;
 
     this.mantleEndPos.set(lipX, ledgeY + this.radius, lipZ);
     if (!this.capsuleFitsAt(this.mantleEndPos)) return false; // never teleport into solid geometry

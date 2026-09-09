@@ -36,5 +36,23 @@ assert.ok(PERIMETER_WALL_TOP > jumpApex + MANTLE_MAX_HEIGHT,
   `perimeter wall (${PERIMETER_WALL_TOP}) must exceed jump apex + mantle reach ` +
   `(${(jumpApex + MANTLE_MAX_HEIGHT).toFixed(3)}) or players could climb out`);
 
-console.log(`OK  jumpApex=${jumpApex.toFixed(3)}m  container reach at apex=${containerReachAtApex.toFixed(3)}m ` +
-  `(<= ${MANTLE_MAX_HEIGHT})  perimeter wall margin=${(PERIMETER_WALL_TOP - jumpApex - MANTLE_MAX_HEIGHT).toFixed(3)}m`);
+// --- Absolute ceiling: a stacked container must NOT be climbable -------------
+// Reach alone cannot distinguish it (both stacks are the same 2.6m step), so
+// PlayerController.MANTLE_MAX_WORLD_Y caps the world height a mantle may end at.
+// Keep this value in sync with the constant in PlayerController.ts.
+const MANTLE_MAX_WORLD_Y = 3.0;
+
+const STACKED_CONTAINER_TOP = 5.2;
+const TOWER_PLATFORM_TOP = 4.65;
+
+assert.ok(CONTAINER_TOP <= MANTLE_MAX_WORLD_Y,
+  `a single container (${CONTAINER_TOP}m) must stay climbable`);
+assert.ok(STACKED_CONTAINER_TOP > MANTLE_MAX_WORLD_Y,
+  `a stacked container (${STACKED_CONTAINER_TOP}m) must NOT be climbable`);
+assert.ok(TOWER_PLATFORM_TOP > MANTLE_MAX_WORLD_Y,
+  `the tower platform (${TOWER_PLATFORM_TOP}m) must be reached by its ramp, not mantled`);
+assert.ok(PERIMETER_WALL_TOP > MANTLE_MAX_WORLD_Y,
+  `the perimeter wall (${PERIMETER_WALL_TOP}m) must never be mantled`);
+
+console.log(`OK  ceiling=${MANTLE_MAX_WORLD_Y}m  container ${CONTAINER_TOP}m climbable, ` +
+  `stacked ${STACKED_CONTAINER_TOP}m / tower ${TOWER_PLATFORM_TOP}m / wall ${PERIMETER_WALL_TOP}m blocked`);
