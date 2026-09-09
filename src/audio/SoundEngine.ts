@@ -46,7 +46,7 @@ export class SoundEngine {
    * fire never sounds like the same file machine-gunned back at you.
    * Returns false when the sample is absent so the caller can synthesize instead.
    */
-  private playSample(name: string, gain = 1.0, detune = 0.0): boolean {
+  private playSample(name: string, gain = 1.0, detune = 0.0, levelJitter = 0.0): boolean {
     const buf = this.samples.get(name);
     if (!buf) return false;
 
@@ -69,7 +69,7 @@ export class SoundEngine {
     src.playbackRate.value = 1 + (Math.random() - 0.5) * detune;
 
     const g = ctx.createGain();
-    g.gain.setValueAtTime(gain * (0.92 + Math.random() * 0.16), now);
+    g.gain.setValueAtTime(gain * (1 + (Math.random() - 0.5) * levelJitter), now);
 
     src.connect(g);
     g.connect(ctx.destination);
@@ -243,9 +243,11 @@ export class SoundEngine {
   public playRifleShot(): void {
     if (this.isMuted) return;
 
-    // Real recorded AK-47 report, played clean: the take already carries its own
-    // low end and range echo, so nothing is layered underneath it.
-    if (this.playSample('ak47', 1.0, 0.05)) return;
+    // ak47.mp3 is spliced out of ak47_burst.mp3 (that take's own first attack over its
+    // own decay tail), so a tap and a held burst are the same gun in the same room.
+    // Pitch/level jitter is deliberately near-zero here: the burst loop plays at a
+    // fixed tone, and randomising the single shot is what makes the two drift apart.
+    if (this.playSample('ak47', 1.0, 0.01)) return;
 
     const ctx = this.initContext();
     const now = ctx.currentTime;
@@ -451,7 +453,7 @@ export class SoundEngine {
    */
   public playShotgunShot(): void {
     if (this.isMuted) return;
-    if (this.playSample('shotgun', 1.0, 0.05)) {
+    if (this.playSample('shotgun', 1.0, 0.05, 0.16)) {
       this.layerSubThump(0.95, 115, 20, 0.32);
       this.layerOutdoorTail(0.38, 0.62, 620);
       return;
