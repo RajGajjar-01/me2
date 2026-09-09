@@ -58,9 +58,7 @@ export class WeaponManager {
       name: 'AK-47',
       fireMode: 'AUTO // 7.62x39mm',
       isAuto: true,
-      // Locked to the cadence of the burst recording so the flash, the ammo
-      // counter and the audible rounds all land on the same beat.
-      fireRate: SoundEngine.AK_BURST_RATE,
+      fireRate: 10.0, // ~600 RPM
       magSize: 30,
       currentAmmo: 30,
       reserveAmmo: 120,
@@ -128,10 +126,6 @@ export class WeaponManager {
   private flashTimer = 0;
   private reloadTimer = 0;
   private canFireSemi = true;
-  /** True while the looping burst recording is carrying automatic fire. */
-  private autoFireAudio = false;
-  /** Rounds fired since the trigger was last pulled, for the one-shot -> burst handover. */
-  private heldRounds = 0;
 
   // Reload choreography: gun + left-hand keyframes, with audio cues fired on the
   // exact phase boundary they belong to instead of one canned reload blob.
@@ -278,7 +272,6 @@ export class WeaponManager {
     await this.soundEngine.loadSamples(
       {
         ak47: '/sounds/ak47.mp3',
-        ak47_burst: '/sounds/ak47_burst.mp3',
         shotgun: '/sounds/shotgun.mp3',
         reload: '/sounds/reload.mp3'
       },
@@ -349,17 +342,6 @@ export class WeaponManager {
     const fireInterval = 1.0 / weapon.fireRate;
 
     const canFire = isFireDown && !this.isReloading && !this.isSwapping;
-
-    // Releasing the trigger (or running the magazine dry) ends the burst take and
-    // re-arms the single-shot sample for the next tap. Starting it is handled in
-    // shoot(), so the loop enters exactly on the second round's beat.
-    if (!canFire) this.heldRounds = 0;
-
-    const sustaining = canFire && weapon.isAuto && weapon.currentAmmo > 0;
-    if (!sustaining && this.autoFireAudio) {
-      this.soundEngine.stopAutoFire();
-      this.autoFireAudio = false;
-    }
 
     if (canFire) {
       if (weapon.isAuto || this.canFireSemi) {
@@ -536,23 +518,11 @@ export class WeaponManager {
 
     weapon.currentAmmo--;
     this.totalShots++;
-    this.heldRounds++;
     this.lastFireTime = now;
     this.notifyAmmo();
 
     if (this.currentWeaponIndex === 0) {
-      // heldRounds already counts this round, so 1 is the first shot of the pull and
-      // takes the single-shot take. From the second round on the trigger is genuinely
-      // held, so the looping burst recording takes over — entering here, on the beat,
-      // rather than a frame after the first shot. While it runs every round is already
-      // audible in the recording, so no one-shot is layered on top.
-      if (weapon.isAuto && this.heldRounds >= 2) {
-        if (!this.autoFireAudio) {
-          this.autoFireAudio = this.soundEngine.startAutoFire();
-          if (this.autoFireAudio) this.soundEngine.duckSample('ak47');
-        }
-      }
-      if (!this.autoFireAudio) this.soundEngine.playRifleShot();
+      this.soundEngine.playRifleShot();
     } else if (this.currentWeaponIndex === 2) {
       this.soundEngine.playShotgunShot();
     } else {
