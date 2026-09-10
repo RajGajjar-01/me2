@@ -5,7 +5,21 @@
   "main": "index.js",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "biome check .",
+    "check:write": "biome check --write .",
+    "ci:quality": "biome ci .",
+    "typecheck": "tsc --noEmit",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "*.{js,mjs,cjs,ts,tsx,json,jsonc,css,html}": [
+      "biome check --write --no-errors-on-unmatched"
+    ]
+  },
+  "engines": {
+    "node": ">=20.19.0"
   },
   "keywords": [],
   "author": "",
@@ -16,7 +30,12 @@
     "three-mesh-bvh": "^0.9.14"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.13",
+    "@commitlint/cli": "^21.2.2",
+    "@commitlint/config-conventional": "^21.2.2",
     "@types/three": "^0.185.4",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
     "typescript": "^7.0.2",
     "vite": "^8.2.2"
   }

@@ -1,11 +1,11 @@
 import * as THREE from 'three';
-import { GameRenderer } from './core/Renderer';
 import { InputManager } from './core/InputManager';
+import { GameRenderer } from './core/Renderer';
 import { OutdoorRange } from './environment/OutdoorRange';
 import { PlayerController } from './player/PlayerController';
-import { WeaponManager } from './weapons/WeaponManager';
-import { TacticalTelemetry } from './ui/TacticalTelemetry';
 import { CombatHUD } from './ui/CombatHUD';
+import { TacticalTelemetry } from './ui/TacticalTelemetry';
+import { WeaponManager } from './weapons/WeaponManager';
 
 class GameApp {
   private renderer: GameRenderer;
@@ -18,7 +18,6 @@ class GameApp {
   private clock: THREE.Clock = new THREE.Clock();
   private isLoaded = false;
 
-  // DOM HUD elements
   private overlayScreen = document.getElementById('overlay-screen')!;
   private startBtn = document.getElementById('start-btn') as HTMLButtonElement;
   private startBtnText = document.getElementById('start-btn-text')!;
@@ -40,7 +39,6 @@ class GameApp {
   private hitsCounter = document.getElementById('hits-counter')!;
   private accuracyCounter = document.getElementById('accuracy-counter')!;
 
-  // FPS tracking
   private frameCount = 0;
   private fpsTime = 0;
 
@@ -61,37 +59,40 @@ class GameApp {
 
   private async startAssetLoading(): Promise<void> {
     try {
-      // Build outdoor environment, sky, and BVH tree
       await this.range.buildWithProgress((percent, status) => {
         this.loaderFill.style.width = `${percent}%`;
         this.loaderPercent.textContent = `${percent}%`;
         this.loaderStatus.textContent = status;
       });
 
-      // Initialize player controller with BVH
       this.player = new PlayerController(
         75,
         window.innerWidth / window.innerHeight,
         this.input,
-        this.range.bvh
+        this.range.bvh,
       );
 
-      // Add camera to scene so viewmodel children render
       this.renderer.scene.add(this.player.camera);
 
-      // Initialize Weapons & Hands Viewmodel System with world collider mesh
       this.weapons = new WeaponManager(
         this.player.camera,
         this.input,
         this.renderer.scene,
-        this.range.colliderMesh
+        this.range.colliderMesh,
       );
-      // Recoil moves the player's real aim, not a cosmetic camera offset.
-      this.weapons.onRecoil = (pitch, yaw) => this.player!.applyRecoil(pitch, yaw);
-      // The player has no audio dependency of its own; it just says when a step landed.
-      // Crouching is a deliberately quiet way to move, and a crawl quieter still.
+
+      this.weapons.onRecoil = (pitch, yaw) =>
+        this.player!.applyRecoil(pitch, yaw);
+
       this.player.onFootstep = (stance, isSprinting) => {
-        const gain = stance === 'prone' ? 0.12 : stance === 'crouch' ? 0.3 : isSprinting ? 0.75 : 0.55;
+        const gain =
+          stance === 'prone'
+            ? 0.12
+            : stance === 'crouch'
+              ? 0.3
+              : isSprinting
+                ? 0.75
+                : 0.55;
         this.weapons.soundEngine.playFootstep(gain, isSprinting ? 1.12 : 1.0);
       };
       await this.weapons.loadAssets((status) => {
@@ -101,12 +102,10 @@ class GameApp {
       });
       this.setupWeaponEvents();
 
-      // Pre-heat GPU shaders to guarantee 0 in-game hitching
       this.loaderStatus.textContent = 'PRE-HEATING GPU SHADER CACHE...';
-      await new Promise(r => requestAnimationFrame(r));
+      await new Promise((r) => requestAnimationFrame(r));
       this.renderer.compile(this.player.camera);
 
-      // Enable start button
       this.isLoaded = true;
       this.loaderStatus.textContent = 'WEAPONS & COMPOUND READY';
       this.startBtn.classList.remove('disabled');
@@ -134,14 +133,14 @@ class GameApp {
 
     this.weapons.onStatsUpdate = (_shots, hits, acc) => {
       if (this.hitsCounter) this.hitsCounter.textContent = `${hits}`;
-      if (this.accuracyCounter) this.accuracyCounter.textContent = `${acc.toFixed(0)}%`;
+      if (this.accuracyCounter)
+        this.accuracyCounter.textContent = `${acc.toFixed(0)}%`;
     };
 
     this.weapons.onRecoilTelemetry = (spreadX, spreadY, isHit) => {
       this.telemetry.recordShot(spreadX, spreadY, isHit);
     };
 
-    // Wire up screen-space combat damage text and target analyzer
     this.weapons.dummyManager.onDummyHit = (
       damage,
       isHeadshot,
@@ -149,7 +148,7 @@ class GameApp {
       hitPoint,
       dummyId,
       currentHp,
-      maxHp
+      maxHp,
     ) => {
       this.combatHud.registerHit(
         damage,
@@ -159,7 +158,7 @@ class GameApp {
         this.player.camera,
         dummyId,
         currentHp,
-        maxHp
+        maxHp,
       );
     };
 
@@ -198,10 +197,17 @@ class GameApp {
     if (this.isLoaded && this.player) {
       if (this.input.isLocked) {
         if (this.weapons) {
-          // Getting low braces the gun — stance scales the whole recoil impulse.
           this.weapons.stanceKickMult =
-            this.player.stance === 'prone' ? 0.5 : this.player.stance === 'crouch' ? 0.75 : 1;
-          this.weapons.update(delta, this.player.getSpeed(), this.player.onGround);
+            this.player.stance === 'prone'
+              ? 0.5
+              : this.player.stance === 'crouch'
+                ? 0.75
+                : 1;
+          this.weapons.update(
+            delta,
+            this.player.getSpeed(),
+            this.player.onGround,
+          );
         }
         this.player.update(delta);
       }
@@ -209,11 +215,10 @@ class GameApp {
       this.updateHUD(delta);
       this.renderer.render(this.player.camera);
 
-      // Live Telemetry Pipeline & Recoil Graphs
       this.telemetry.recordFrame(
         delta,
         this.renderer.renderer.info.render.calls,
-        this.renderer.renderer.info.render.triangles
+        this.renderer.renderer.info.render.triangles,
       );
     }
   }
@@ -221,7 +226,6 @@ class GameApp {
   private updateHUD(delta: number): void {
     if (!this.player) return;
 
-    // 1. FPS counter
     this.frameCount++;
     this.fpsTime += delta;
     if (this.fpsTime >= 0.35) {
@@ -231,11 +235,9 @@ class GameApp {
       this.fpsTime = 0;
     }
 
-    // 2. Stamina bar
     const staminaPercent = (this.player.stamina / this.player.maxStamina) * 100;
     this.staminaBar.style.width = `${staminaPercent}%`;
 
-    // 3. Movement speed & posture
     const speed = this.player.getSpeed();
     this.speedText.textContent = `${speed.toFixed(1)} M/S`;
 
@@ -255,7 +257,6 @@ class GameApp {
   }
 }
 
-// Boot up game on DOM load
 window.addEventListener('DOMContentLoaded', () => {
   new GameApp();
 });

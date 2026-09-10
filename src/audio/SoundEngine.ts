@@ -1,38 +1,42 @@
-/**
- * Hyper-optimized, punchy tactical Web Audio engine.
- * Generates authentic Hollywood/AAA audio with deep sub-bass thump,
- * supersonic crack, mechanical action, and spatial stereo reverb.
- */
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private isMuted = false;
 
-  /** Decoded real-world gun recordings, keyed by name. Missing keys fall back to synthesis. */
   private samples: Map<string, AudioBuffer> = new Map();
 
-  /** Every still-ringing take per sample name, oldest first, so retriggering can duck them. */
-  private voices: Map<string, { src: AudioBufferSourceNode; gain: GainNode }[]> = new Map();
+  private voices: Map<
+    string,
+    { src: AudioBufferSourceNode; gain: GainNode }[]
+  > = new Map();
 
-  /** Hard ceiling on overlapping copies of one sample, so a long mag can't run away. */
   private static readonly MAX_VOICES = 8;
 
-  /** Lazily-built convolution reverb send — see getReverbBus(). */
   private reverbBus: GainNode | null = null;
-  /** Tail length of the compound. Longer reads as a bigger, more distant valley. */
-  private static readonly REVERB_SECONDS = 1.9;
-  /** Return level of the wet bus — the one knob to turn if the range sounds too wet. */
-  private static readonly REVERB_WET = 0.34;
+
+  private static readonly REVERB_SECONDS = 2.2;
+
+  private static readonly REVERB_WET = 0.38;
+
+  private static readonly REVERB_PREDELAY = 0.016;
+
+  private static readonly REVERB_DECAY_EXP = 2.3;
+
+  // [ms, amplitude] — first four are the compound, last three distant terrain.
+  private static readonly REVERB_REFLECTIONS = [
+    [19, 0.62],
+    [37, 0.45],
+    [58, 0.3],
+    [97, 0.2],
+    [168, 0.15],
+    [247, 0.1],
+    [352, 0.062],
+  ] as const;
 
   constructor() {}
 
-  /**
-   * Fetches and decodes the real recorded gun samples in public/sounds.
-   * Any file that is missing or fails to decode is simply skipped — every caller
-   * has a synthesized fallback, so audio never blocks or breaks the load.
-   */
   public async loadSamples(
     manifest: Record<string, string>,
-    onProgress?: (status: string) => void
+    onProgress?: (status: string) => void,
   ): Promise<void> {
     const ctx = this.initContext();
     onProgress?.('LOADING LIVE-FIRE AUDIO SAMPLES...');
@@ -45,24 +49,15 @@ export class SoundEngine {
           const buf = await ctx.decodeAudioData(await res.arrayBuffer());
           this.samples.set(name, buf);
         } catch (err) {
-          console.warn(`Sound sample "${name}" unavailable, using synthesized fallback:`, err);
+          console.warn(
+            `Sound sample "${name}" unavailable, using synthesized fallback:`,
+            err,
+          );
         }
-      })
+      }),
     );
   }
 
-  /**
-   * Plays a decoded sample.
-   *
-   * `duckOlder` is what makes one recording usable for both a single shot and
-   * sustained fire: each new round multiplies the gain of every still-ringing
-   * earlier round by that factor over 50ms. Tails then decay geometrically instead
-   * of stacking into mush, so the newest transient always reads clearly while the
-   * room tail stays continuous underneath it. A lone shot ducks nothing and keeps
-   * its full natural decay.
-   *
-   * Returns false when the sample is absent so the caller can synthesize instead.
-   */
   private playSample(
     name: string,
     opts: {
@@ -72,12 +67,19 @@ export class SoundEngine {
       levelJitter?: number;
       duckOlder?: number;
       reverb?: number;
-    } = {}
+    } = {},
   ): boolean {
     const buf = this.samples.get(name);
     if (!buf) return false;
 
-    const { gain = 1.0, rate = 1.0, detune = 0.0, levelJitter = 0.0, duckOlder, reverb = 0 } = opts;
+    const {
+      gain = 1.0,
+      rate = 1.0,
+      detune = 0.0,
+      levelJitter = 0.0,
+      duckOlder,
+      reverb = 0,
+    } = opts;
 
     const ctx = this.initContext();
     const now = ctx.currentTime;
@@ -90,18 +92,18 @@ export class SoundEngine {
         const current = g.gain.value;
         g.gain.cancelScheduledValues(now);
         g.gain.setValueAtTime(current, now);
-        g.gain.linearRampToValueAtTime(Math.max(0.0001, current * duckOlder), now + 0.05);
+        g.gain.linearRampToValueAtTime(
+          Math.max(0.0001, current * duckOlder),
+          now + 0.05,
+        );
       }
     }
 
-    // Oldest copies are already near-silent from repeated ducking; retire them.
     while (active.length >= SoundEngine.MAX_VOICES) {
       const oldest = active.shift();
       try {
         oldest?.src.stop();
-      } catch {
-        /* already ended */
-      }
+      } catch {}
     }
 
     const src = ctx.createBufferSource();
@@ -109,16 +111,15 @@ export class SoundEngine {
     src.playbackRate.value = rate + (Math.random() - 0.5) * detune;
 
     const g = ctx.createGain();
-    g.gain.setValueAtTime(gain * (1 + (Math.random() - 0.5) * levelJitter), now);
+    g.gain.setValueAtTime(
+      gain * (1 + (Math.random() - 0.5) * levelJitter),
+      now,
+    );
 
     src.connect(g);
     g.connect(ctx.destination);
 
     if (reverb > 0) {
-      // Fed from `src`, deliberately upstream of `g`: duckOlder pulls down the DRY
-      // level of rounds already ringing, and a tail yanked down with it would undo
-      // the point of having a room. This way the compound keeps ringing while each
-      // new report takes the front of the mix.
       const send = ctx.createGain();
       send.gain.value = gain * reverb;
       src.connect(send);
@@ -144,34 +145,47 @@ export class SoundEngine {
     return this.samples.has(name);
   }
 
-  /**
-   * Shared convolution reverb for the open-air compound, built once on first use.
-   *
-   * The impulse response is generated rather than loaded: a decaying noise burst is
-   * all a convolver needs, and a real IR file would be a bigger download than every
-   * gun sample combined. The decay is tilted steeply toward the start and a few
-   * discrete early reflections are stamped in, so it reads as a walled compound
-   * slapping the report back at you rather than as a concert hall.
-   *
-   * Returns the bus *input* — connect a send gain to it.
-   */
   private getReverbBus(): GainNode {
     if (this.reverbBus) return this.reverbBus;
     const ctx = this.initContext();
 
-    const size = Math.floor(ctx.sampleRate * SoundEngine.REVERB_SECONDS);
+    const rate = ctx.sampleRate;
+    const size = Math.floor(rate * SoundEngine.REVERB_SECONDS);
+    const preDelay = Math.floor(rate * SoundEngine.REVERB_PREDELAY);
     const ir = ctx.createBuffer(2, size, ctx.sampleRate);
+
     for (let ch = 0; ch < 2; ch++) {
       const d = ir.getChannelData(ch);
-      for (let i = 0; i < size; i++) {
-        // Independent noise per channel is what decorrelates the tail into stereo.
-        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / size, 2.6);
+      let lp = 0;
+
+      for (let i = preDelay; i < size; i++) {
+        const t = (i - preDelay) / (size - preDelay);
+
+        // One-pole lowpass, cutoff falling as the tail ages; /sqrt(a) restores level.
+        const a = 0.72 - 0.67 * t;
+        lp += (Math.random() * 2 - 1 - lp) * a;
+
+        const build = Math.min(1, (i - preDelay) / (rate * 0.04));
+
+        d[i] =
+          (lp / Math.sqrt(a)) * build * (1 - t) ** SoundEngine.REVERB_DECAY_EXP;
       }
-      // Early reflections off the container walls and berms. Flipped in phase on the
-      // right so the slap has a direction instead of collapsing to the centre.
-      for (const [ms, amp] of [[37, 0.5], [61, 0.34], [98, 0.2]] as const) {
-        const at = Math.floor((ctx.sampleRate * ms) / 1000);
+
+      for (const [ms, amp] of SoundEngine.REVERB_REFLECTIONS) {
+        const at = Math.floor((rate * ms) / 1000);
         if (at < size) d[at] += amp * (ch === 0 ? 1 : -0.85);
+      }
+    }
+
+    let peak = 0;
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < size; i++) peak = Math.max(peak, Math.abs(d[i]));
+    }
+    if (peak > 0) {
+      for (let ch = 0; ch < 2; ch++) {
+        const d = ir.getChannelData(ch);
+        for (let i = 0; i < size; i++) d[i] /= peak;
       }
     }
 
@@ -192,7 +206,8 @@ export class SoundEngine {
 
   private initContext(): AudioContext {
     if (!this.ctx) {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext || (window as any).webkitAudioContext;
       this.ctx = new AudioCtx();
     }
     if (this.ctx.state === 'suspended') {
@@ -201,14 +216,12 @@ export class SoundEngine {
     return this.ctx;
   }
 
-  /**
-   * Thunderous 7.62x39mm Soviet AK-47 Gunshot with Outdoor Echo Reverb
-   */
-  /**
-   * Adds the low end a dry close-mic gunshot recording physically cannot capture.
-   * Without this layer a real sample plays back thin and "clicky" on small speakers.
-   */
-  private layerSubThump(gain: number, fromHz: number, toHz: number, dur: number): void {
+  private layerSubThump(
+    gain: number,
+    fromHz: number,
+    toHz: number,
+    dur: number,
+  ): void {
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
@@ -227,10 +240,6 @@ export class SoundEngine {
     osc.stop(now + dur * 1.2);
   }
 
-  /**
-   * Open-air slapback off the compound walls, delayed slightly behind the muzzle
-   * report — this is what makes a shot read as "outdoors" rather than "a file".
-   */
   private layerOutdoorTail(gain: number, dur: number, cutoffHz = 780): void {
     const ctx = this.initContext();
     const now = ctx.currentTime;
@@ -239,7 +248,8 @@ export class SoundEngine {
     const buf = ctx.createBuffer(1, size, ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < size; i++) {
-      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * dur * 0.24));
+      d[i] =
+        (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * dur * 0.24));
     }
 
     const src = ctx.createBufferSource();
@@ -263,16 +273,19 @@ export class SoundEngine {
   public playRifleShot(): void {
     if (this.isMuted) return;
 
-    // One recording serves both a single tap and sustained fire: retriggered at the
-    // weapon's fire rate, with each new round ducking the previous rounds' tails so
-    // they decay away instead of stacking. Because tap and hold are literally the
-    // same file, they cannot drift apart in tone the way two takes would.
-    if (this.playSample('ak47', { gain: 0.95, detune: 0.03, duckOlder: 0.34, reverb: 0.5 })) return;
+    if (
+      this.playSample('ak47', {
+        gain: 0.95,
+        detune: 0.03,
+        duckOlder: 0.34,
+        reverb: 0.62,
+      })
+    )
+      return;
 
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
-    // 1. Visceral 7.62mm Sub-Bass Shockwave (150Hz -> 28Hz deep chest thud)
     const subOsc = ctx.createOscillator();
     subOsc.type = 'sine';
     subOsc.frequency.setValueAtTime(155, now);
@@ -287,12 +300,12 @@ export class SoundEngine {
     subOsc.start(now);
     subOsc.stop(now + 0.28);
 
-    // 2. High-Pressure Supersonic Muzzle Blast Crack
     const crackSize = ctx.sampleRate * 0.14;
     const crackBuffer = ctx.createBuffer(1, crackSize, ctx.sampleRate);
     const crackData = crackBuffer.getChannelData(0);
     for (let i = 0; i < crackSize; i++) {
-      crackData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.024));
+      crackData[i] =
+        (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.024));
     }
 
     const crack = ctx.createBufferSource();
@@ -312,12 +325,12 @@ export class SoundEngine {
     crackGain.connect(ctx.destination);
     crack.start(now);
 
-    // 3. Outdoor Open-Air Compound Echo / Reverb Tail
     const echoSize = ctx.sampleRate * 0.38;
     const echoBuffer = ctx.createBuffer(1, echoSize, ctx.sampleRate);
     const echoData = echoBuffer.getChannelData(0);
     for (let i = 0; i < echoSize; i++) {
-      echoData[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.09));
+      echoData[i] =
+        (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.09));
     }
 
     const echoSource = ctx.createBufferSource();
@@ -336,20 +349,15 @@ export class SoundEngine {
     echoGain.connect(ctx.destination);
     echoSource.start(now + 0.02);
 
-    // 4. Heavy AK-47 Steel Bolt Carrier Clack
     this.playMechanicalClick(now + 0.012, 2800, 0.5);
     this.playMechanicalClick(now + 0.042, 950, 0.4);
   }
 
-  /**
-   * Crisp 9mm Tactical Suppressed Ghost Gunshot (Valorant-style silenced pop)
-   */
   public playPistolShot(): void {
     if (this.isMuted) return;
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
-    // 1. Muted Sub Thump (Suppressed gas containment)
     const subOsc = ctx.createOscillator();
     subOsc.type = 'triangle';
     subOsc.frequency.setValueAtTime(140, now);
@@ -364,12 +372,12 @@ export class SoundEngine {
     subOsc.start(now);
     subOsc.stop(now + 0.12);
 
-    // 2. High-frequency suppressed baffle pop & gas hiss
     const bufferSize = ctx.sampleRate * 0.06;
     const buffer = ctx.createBuffer(1, bufferSize, ctx.sampleRate);
     const data = buffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.009));
+      data[i] =
+        (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.009));
     }
 
     const noise = ctx.createBufferSource();
@@ -389,12 +397,15 @@ export class SoundEngine {
     noiseGain.connect(ctx.destination);
     noise.start(now);
 
-    // 3. Crisp mechanical slide blowback click
     this.playMechanicalClick(now + 0.012, 3400, 0.4);
     this.playMechanicalClick(now + 0.038, 1800, 0.3);
   }
 
-  private playMechanicalClick(time: number, freq: number, volume: number): void {
+  private playMechanicalClick(
+    time: number,
+    freq: number,
+    volume: number,
+  ): void {
     if (!this.ctx) return;
     const osc = this.ctx.createOscillator();
     osc.type = 'square';
@@ -411,21 +422,16 @@ export class SoundEngine {
     osc.stop(time + 0.02);
   }
 
-  /**
-   * Authentic Valorant-Style Weapon Equip Mechanical Flourish
-   */
   public playWeaponEquip(weaponIndex: number): void {
     if (this.isMuted) return;
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
     if (weaponIndex === 0) {
-      // AK-47 Heavy Bolt Rack & Stock Lock (visceral metallic shhk-CLACK)
       this.playMechanicalClick(now + 0.02, 1100, 0.45);
       this.playMechanicalClick(now + 0.08, 1600, 0.6);
       this.playMechanicalClick(now + 0.18, 2400, 0.7);
 
-      // Sub friction sweep
       const sweepOsc = ctx.createOscillator();
       sweepOsc.type = 'sawtooth';
       sweepOsc.frequency.setValueAtTime(320, now + 0.06);
@@ -446,12 +452,10 @@ export class SoundEngine {
       sweepOsc.start(now + 0.06);
       sweepOsc.stop(now + 0.19);
     } else {
-      // Tactical Pistol Rapid Slide Pull & Hammer Cock (snappy clik-SNAP)
       this.playMechanicalClick(now + 0.02, 2800, 0.4);
-      this.playMechanicalClick(now + 0.10, 3600, 0.65);
+      this.playMechanicalClick(now + 0.1, 3600, 0.65);
       this.playMechanicalClick(now + 0.12, 1400, 0.5);
 
-      // Light metallic chime
       const bell = ctx.createOscillator();
       bell.type = 'sine';
       bell.frequency.setValueAtTime(1850, now + 0.1);
@@ -468,12 +472,17 @@ export class SoundEngine {
     }
   }
 
-  /**
-   * Thunderous 12-gauge blast: a slower, deeper, wider-tailed report than the rifle.
-   */
   public playShotgunShot(): void {
     if (this.isMuted) return;
-    if (this.playSample('shotgun', { gain: 1.0, detune: 0.05, levelJitter: 0.16, duckOlder: 0.5, reverb: 0.58 })) {
+    if (
+      this.playSample('shotgun', {
+        gain: 1.0,
+        detune: 0.05,
+        levelJitter: 0.16,
+        duckOlder: 0.5,
+        reverb: 0.58,
+      })
+    ) {
       this.layerSubThump(0.95, 115, 20, 0.32);
       this.layerOutdoorTail(0.38, 0.62, 620);
       return;
@@ -482,7 +491,6 @@ export class SoundEngine {
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
-    // Deep 12ga chest punch
     const sub = ctx.createOscillator();
     sub.type = 'sine';
     sub.frequency.setValueAtTime(120, now);
@@ -497,7 +505,6 @@ export class SoundEngine {
     sub.start(now);
     sub.stop(now + 0.4);
 
-    // Wide, gritty powder blast (slower decay than a rifle crack)
     const size = ctx.sampleRate * 0.4;
     const buf = ctx.createBuffer(1, size, ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -522,19 +529,12 @@ export class SoundEngine {
     src.start(now);
   }
 
-  // --- Discrete reload cues ---------------------------------------------------
-  // A reload is a sequence of distinct mechanical events, not one audio blob.
-  // WeaponManager fires these individually as the reload animation reaches each
-  // phase, so the sound always lands on the matching hand movement.
-
-  /** Magazine catch paddle being slapped. */
   public playMagRelease(): void {
     if (this.isMuted) return;
     const now = this.initContext().currentTime;
     this.playMechanicalClick(now, 2400, 0.35);
   }
 
-  /** Empty magazine stripping free of the well and tumbling away. */
   public playMagOut(): void {
     if (this.isMuted) return;
     const now = this.initContext().currentTime;
@@ -542,7 +542,6 @@ export class SoundEngine {
     this.playMechanicalClick(now + 0.07, 1300, 0.22);
   }
 
-  /** Fresh magazine rocked in and seated — the heavy thunk. */
   public playMagIn(): void {
     if (this.isMuted) return;
     const now = this.initContext().currentTime;
@@ -551,29 +550,26 @@ export class SoundEngine {
     this.playMechanicalClick(now + 0.12, 1500, 0.3);
   }
 
-  /**
-   * Plays the real recorded magazine-reload take covering the whole cycle.
-   * Returns false when the sample is missing, so the caller can fall back to the
-   * individually-timed synthesized cues instead.
-   */
   public playReloadCycle(): boolean {
     if (this.isMuted) return true;
     return this.playSample('reload', { gain: 0.9 });
   }
 
-  /**
-   * One boot hitting the ground. `gain` carries the stance (a crawl is not a march)
-   * and `rate` the sprint — a faster playback rate reads as a harder, sharper step.
-   * The detune/jitter is what stops a run from sounding like the same click looped.
-   */
   public playFootstep(gain: number, rate = 1.0): void {
     if (this.isMuted) return;
-    if (this.playSample('footstep', { gain, rate, detune: 0.12, levelJitter: 0.3 })) return;
+    if (
+      this.playSample('footstep', {
+        gain,
+        rate,
+        detune: 0.12,
+        levelJitter: 0.3,
+      })
+    )
+      return;
 
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
-    // Fallback: a short filtered noise burst — a scuff, not a click.
     const size = ctx.sampleRate * 0.09;
     const buf = ctx.createBuffer(1, size, ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -597,7 +593,6 @@ export class SoundEngine {
     src.start(now);
   }
 
-  /** Charging handle yanked back and released onto a fresh round. */
   public playBoltRack(): void {
     if (this.isMuted) return;
     const now = this.initContext().currentTime;
@@ -605,7 +600,6 @@ export class SoundEngine {
     this.playMechanicalClick(now + 0.11, 2600, 0.6);
   }
 
-  /** One shell thumbed into the shotgun's tube magazine. */
   public playShellInsert(): void {
     if (this.isMuted) return;
     const now = this.initContext().currentTime;
@@ -613,7 +607,6 @@ export class SoundEngine {
     this.playMechanicalClick(now + 0.06, 820, 0.22);
   }
 
-  /** Forend racked back and slammed forward — the classic ka-chunk. */
   public playPumpRack(): void {
     if (this.isMuted) return;
     const now = this.initContext().currentTime;
@@ -655,15 +648,11 @@ export class SoundEngine {
     osc.stop(now + 0.35);
   }
 
-  /**
-   * Heavy kinetic body / ballistic dummy impact sound
-   */
   public playBodyImpact(): void {
     if (this.isMuted) return;
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
-    // 1. Low kinetic thud
     const osc = ctx.createOscillator();
     osc.type = 'triangle';
     osc.frequency.setValueAtTime(140, now);
@@ -678,7 +667,6 @@ export class SoundEngine {
     osc.start(now);
     osc.stop(now + 0.18);
 
-    // 2. High-velocity impact slap
     const size = ctx.sampleRate * 0.05;
     const buf = ctx.createBuffer(1, size, ctx.sampleRate);
     const d = buf.getChannelData(0);
@@ -695,15 +683,11 @@ export class SoundEngine {
     src.start(now);
   }
 
-  /**
-   * Crisp, rewarding Headshot critical elimination chime
-   */
   public playHeadshotHit(): void {
     if (this.isMuted) return;
     const ctx = this.initContext();
     const now = ctx.currentTime;
 
-    // Dual high harmonic bell ping + skull crack
     [3200, 4800].forEach((freq, idx) => {
       const osc = ctx.createOscillator();
       osc.type = 'sine';
@@ -721,9 +705,6 @@ export class SoundEngine {
     });
   }
 
-  /**
-   * Mechanical pneumatic hiss when target dummy pops back up
-   */
   public playDummyReset(): void {
     if (this.isMuted) return;
     const ctx = this.initContext();

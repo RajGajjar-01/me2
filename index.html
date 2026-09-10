@@ -13,9 +13,8 @@
     <div id="game-container">
       <canvas id="webgl-canvas"></canvas>
 
-      <!-- In-Game Tactical HUD -->
       <div id="hud" class="hidden">
-        <!-- Reticle / Crosshair -->
+
         <div id="crosshair-container">
           <div class="reticle-line top"></div>
           <div class="reticle-line bottom"></div>
@@ -30,7 +29,6 @@
           </div>
         </div>
 
-        <!-- Top Range Status Bar -->
         <div id="top-bar">
           <div class="badge live-badge"><span class="pulse-dot"></span> LIVE RANGE</div>
           <div class="range-metric">
@@ -51,7 +49,6 @@
           </div>
         </div>
 
-        <!-- Bottom Left: Operator Status -->
         <div id="bottom-left">
           <div class="operator-tag">OPERATOR // SPEC-OPS</div>
           <div class="stamina-wrapper">
@@ -67,7 +64,6 @@
           </div>
         </div>
 
-        <!-- Bottom Right: Ammo & Weapon -->
         <div id="bottom-right">
           <div class="weapon-info">
             <div id="weapon-name">M4A1 CARBINE</div>
@@ -86,13 +82,12 @@
         </div>
       </div>
 
-      <!-- Start / Pause / Instructions Overlay -->
       <div id="overlay-screen">
         <div class="overlay-modal">
           <div class="bunker-stencil">SECTOR 07 // OPEN-AIR LIVE FIRE COMPOUND</div>
           <h1 class="glitch-title" data-text="OUTDOOR COMBAT RANGE">OUTDOOR COMBAT RANGE</h1>
           <p class="subtitle">OPEN-AIR ADVANCED TACTICAL WEAPON TRAINING FACILITY</p>
-          
+
           <div class="controls-grid">
             <div class="ctrl-card">
               <span class="key">WASD</span>
@@ -140,7 +135,6 @@
             </div>
           </div>
 
-          <!-- Loading State -->
           <div id="loader-container">
             <div class="loader-header">
               <span id="loader-status" class="loader-status-text">INITIALIZING ENGINE...</span>
@@ -151,7 +145,7 @@
             </div>
           </div>
 
-          <button id="start-btn" class="tactical-btn disabled" disabled>
+          <button id="start-btn" type="button" class="tactical-btn disabled" disabled>
             <span class="btn-glow"></span>
             <span class="btn-text" id="start-btn-text">LOADING ASSETS...</span>
           </button>

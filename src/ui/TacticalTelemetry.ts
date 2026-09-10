@@ -1,10 +1,3 @@
-/**
- * Real-time Tactical Telemetry & Performance Graphs HUD.
- * Renders high-frequency canvas graphs for:
- * 1. Frametime / FPS stability graph (rolling 60 frames)
- * 2. Recoil pattern & shot dispersion radar graph
- * 3. GPU draw calls, triangle counts, and zero-allocation memory status
- */
 export class TacticalTelemetry {
   private container: HTMLElement;
   private frametimeCanvas: HTMLCanvasElement;
@@ -18,18 +11,20 @@ export class TacticalTelemetry {
   private frametimeText: HTMLElement;
   private splitTimeText: HTMLElement;
 
-  // Rolling history buffers
   private frametimes: number[] = new Array(60).fill(8.3);
   private frameIndex = 0;
 
-  // Shot dispersion points { x: number, y: number, isHit: boolean, age: number }
-  private shotPoints: Array<{ x: number; y: number; isHit: boolean; age: number }> = [];
+  private shotPoints: Array<{
+    x: number;
+    y: number;
+    isHit: boolean;
+    age: number;
+  }> = [];
   private lastShotTimestamp = 0;
 
   public isVisible = true;
 
   constructor() {
-    // 1. Create or mount container
     let existing = document.getElementById('telemetry-panel');
     if (!existing) {
       existing = document.createElement('div');
@@ -87,10 +82,14 @@ export class TacticalTelemetry {
       </div>
     `;
 
-    this.frametimeCanvas = document.getElementById('tel-frametime-canvas') as HTMLCanvasElement;
+    this.frametimeCanvas = document.getElementById(
+      'tel-frametime-canvas',
+    ) as HTMLCanvasElement;
     this.frametimeCtx = this.frametimeCanvas.getContext('2d')!;
 
-    this.dispersionCanvas = document.getElementById('tel-dispersion-canvas') as HTMLCanvasElement;
+    this.dispersionCanvas = document.getElementById(
+      'tel-dispersion-canvas',
+    ) as HTMLCanvasElement;
     this.dispersionCtx = this.dispersionCanvas.getContext('2d')!;
 
     this.drawCallsEl = document.getElementById('tel-draws')!;
@@ -98,11 +97,9 @@ export class TacticalTelemetry {
     this.frametimeText = document.getElementById('tel-frametime')!;
     this.splitTimeText = document.getElementById('tel-splittime')!;
 
-    // Toggle button handler
     const toggleBtn = this.container.querySelector('.telemetry-toggle');
     toggleBtn?.addEventListener('click', () => this.toggle());
 
-    // Keyboard hotkey [G]
     window.addEventListener('keydown', (e) => {
       if (e.code === 'KeyG' && !e.repeat) {
         this.toggle();
@@ -121,27 +118,25 @@ export class TacticalTelemetry {
     }
   }
 
-  // Throttled and smoothed text metrics
   private textUpdateTimer = 0;
   private smoothedMs = 8.3;
   private smoothedFps = 120;
 
-  /**
-   * Records instantaneous frame delta and updates frametime sparkline graph
-   */
-  public recordFrame(delta: number, drawCalls: number, triangles: number): void {
+  public recordFrame(
+    delta: number,
+    drawCalls: number,
+    triangles: number,
+  ): void {
     if (!this.isVisible) return;
 
     const ms = delta * 1000;
     this.frametimes[this.frameIndex] = ms;
     this.frameIndex = (this.frameIndex + 1) % this.frametimes.length;
 
-    // Exponential moving average filter for stable, readable numbers
     this.smoothedMs = this.smoothedMs * 0.92 + ms * 0.08;
     const currentFps = 1 / Math.max(0.001, delta);
     this.smoothedFps = this.smoothedFps * 0.92 + currentFps * 0.08;
 
-    // Throttle DOM text updates to 4 times per second (every 250ms) to prevent jitter
     this.textUpdateTimer += delta;
     if (this.textUpdateTimer >= 0.25) {
       this.textUpdateTimer = 0;
@@ -150,16 +145,11 @@ export class TacticalTelemetry {
       this.trianglesEl.textContent = `${(triangles / 1000).toFixed(1)}k`;
     }
 
-    // Render Frametime Graph on canvas every frame (smooth scrolling sparkline)
     this.drawFrametimeGraph();
 
-    // Age and render shot dispersion points
     this.updateDispersionPoints(delta);
   }
 
-  /**
-   * Records a weapon shot impact point for the dispersion radar graph
-   */
   public recordShot(spreadX: number, spreadY: number, isHit: boolean): void {
     const now = performance.now();
     if (this.lastShotTimestamp > 0) {
@@ -172,7 +162,7 @@ export class TacticalTelemetry {
       x: spreadX,
       y: spreadY,
       isHit,
-      age: 0
+      age: 0,
     });
 
     if (this.shotPoints.length > 25) {
@@ -187,28 +177,25 @@ export class TacticalTelemetry {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Dark grid background
     ctx.fillStyle = 'rgba(10, 14, 18, 0.75)';
     ctx.fillRect(0, 0, w, h);
 
-    // Reference target lines: 8.3ms (120 FPS) and 16.6ms (60 FPS)
     const y120 = h - (8.3 / 33.3) * h;
     const y60 = h - (16.6 / 33.3) * h;
 
-    ctx.strokeStyle = 'rgba(74, 222, 128, 0.25)'; // 120 FPS green guideline
+    ctx.strokeStyle = 'rgba(74, 222, 128, 0.25)';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, y120);
     ctx.lineTo(w, y120);
     ctx.stroke();
 
-    ctx.strokeStyle = 'rgba(250, 204, 21, 0.25)'; // 60 FPS yellow guideline
+    ctx.strokeStyle = 'rgba(250, 204, 21, 0.25)';
     ctx.beginPath();
     ctx.moveTo(0, y60);
     ctx.lineTo(w, y60);
     ctx.stroke();
 
-    // Plot rolling frametime curve
     ctx.beginPath();
     const len = this.frametimes.length;
     const step = w / (len - 1);
@@ -223,11 +210,10 @@ export class TacticalTelemetry {
       else ctx.lineTo(x, y);
     }
 
-    ctx.strokeStyle = '#38bdf8'; // Tactical Cyan curve
+    ctx.strokeStyle = '#38bdf8';
     ctx.lineWidth = 2;
     ctx.stroke();
 
-    // Area glow fill under curve
     ctx.lineTo(w, h);
     ctx.lineTo(0, h);
     ctx.closePath();
@@ -257,22 +243,19 @@ export class TacticalTelemetry {
 
     ctx.clearRect(0, 0, w, h);
 
-    // Dark circular background
     ctx.fillStyle = 'rgba(10, 14, 18, 0.85)';
     ctx.beginPath();
     ctx.arc(cx, cy, cx - 2, 0, Math.PI * 2);
     ctx.fill();
 
-    // Concentric target rings
     ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)';
     ctx.lineWidth = 1;
-    [15, 30, 45].forEach(r => {
+    [15, 30, 45].forEach((r) => {
       ctx.beginPath();
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.stroke();
     });
 
-    // Crosshair axes
     ctx.beginPath();
     ctx.moveTo(cx, 4);
     ctx.lineTo(cx, h - 4);
@@ -280,28 +263,25 @@ export class TacticalTelemetry {
     ctx.lineTo(w - 4, cy);
     ctx.stroke();
 
-    // Center bullseye
     ctx.fillStyle = 'rgba(74, 222, 128, 0.6)';
     ctx.beginPath();
     ctx.arc(cx, cy, 2.5, 0, Math.PI * 2);
     ctx.fill();
 
-    // Plot shot points
-    const scale = 22; // pixels per spread unit
-    this.shotPoints.forEach(p => {
+    const scale = 22;
+    this.shotPoints.forEach((p) => {
       const alpha = Math.max(0, 1.0 - p.age / 4.0);
       const px = cx + p.x * scale;
       const py = cy - p.y * scale;
 
       ctx.fillStyle = p.isHit
-        ? `rgba(239, 68, 68, ${alpha})`    // Red on target hit
-        : `rgba(251, 191, 36, ${alpha})`;  // Amber on off-target
+        ? `rgba(239, 68, 68, ${alpha})`
+        : `rgba(251, 191, 36, ${alpha})`;
 
       ctx.beginPath();
       ctx.arc(px, py, 3.5, 0, Math.PI * 2);
       ctx.fill();
 
-      // Outer ring for newest shots
       if (p.age < 0.25) {
         ctx.strokeStyle = `rgba(255, 255, 255, ${1.0 - p.age * 4})`;
         ctx.lineWidth = 1.5;

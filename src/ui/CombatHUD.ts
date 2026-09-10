@@ -18,7 +18,7 @@ export class CombatHUD {
 
     this.container.innerHTML = `
       <div id="combat-text-layer"></div>
-      
+
       <!-- Sleek Tactical Target Health Analyzer (Top Center) -->
       <div id="target-analyzer" class="analyzer-hidden">
         <div class="analyzer-header">
@@ -49,9 +49,6 @@ export class CombatHUD {
     this.killBanner = this.container.querySelector('#kill-banner')!;
   }
 
-  /**
-   * Spawns a floating damage number projected from 3D hit coordinate into 2D screen space
-   */
   public registerHit(
     damage: number,
     isHeadshot: boolean,
@@ -60,18 +57,15 @@ export class CombatHUD {
     camera: THREE.Camera,
     dummyId: number,
     currentHp: number,
-    maxHp: number
+    maxHp: number,
   ): void {
-    // 1. Project 3D hit point to 2D screen space
     this.projVec.copy(hitPoint);
     this.projVec.project(camera);
 
-    // Only render if target is in front of camera
     if (this.projVec.z < 1.0) {
       const screenX = (this.projVec.x * 0.5 + 0.5) * window.innerWidth;
       const screenY = (-(this.projVec.y * 0.5) + 0.5) * window.innerHeight;
 
-      // Slight natural random dispersion
       const spreadX = (Math.random() - 0.5) * 24;
       const spreadY = (Math.random() - 0.5) * 16;
 
@@ -88,7 +82,6 @@ export class CombatHUD {
 
       this.textLayer.appendChild(numEl);
 
-      // Auto cleanup after CSS animation completes
       setTimeout(() => {
         if (numEl.parentNode) {
           numEl.parentNode.removeChild(numEl);
@@ -96,14 +89,13 @@ export class CombatHUD {
       }, 750);
     }
 
-    // 2. Update Target Analyzer Bar in HUD
     const targetNames = [
       'CQB FRONT DUMMY',
       'RED CONTAINER PEEK',
       'SANDBAG BUNKER GUNNER',
       'LATERAL PATROL RUNNER',
       'RIGHT FLANK SENTRY',
-      'OBSERVATION TOWER SNIPER'
+      'OBSERVATION TOWER SNIPER',
     ];
     const name = targetNames[dummyId] || `TACTICAL COMBATANT #${dummyId + 1}`;
     this.targetNameEl.textContent = name;
@@ -141,7 +133,7 @@ export class CombatHUD {
   private showKillBanner(): void {
     this.killBanner.classList.remove('kill-banner-hidden');
     this.killBanner.classList.remove('animate-kill');
-    // Trigger reflow for restart
+
     void this.killBanner.offsetWidth;
     this.killBanner.classList.add('animate-kill');
 

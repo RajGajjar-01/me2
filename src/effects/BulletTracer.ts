@@ -31,11 +31,6 @@ interface PooledShell {
   active: boolean;
 }
 
-/**
- * Hyper-optimized, zero-allocation bullet tracer, propellant smoke, and shell casing system.
- * All meshes and geometries are pre-instantiated in memory-pooled ring buffers.
- * Runtime GC churn = 0 bytes!
- */
 export class BulletTracerManager {
   private tracerPool: PooledTracer[] = [];
   private tracerIndex = 0;
@@ -58,20 +53,19 @@ export class BulletTracerManager {
     opacity: 1.0,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
-    side: THREE.DoubleSide
+    side: THREE.DoubleSide,
   });
 
   private brassMat = new THREE.MeshStandardMaterial({
     color: 0xd4af37,
     roughness: 0.22,
-    metalness: 0.92
+    metalness: 0.92,
   });
 
   private casingGeo = new THREE.CylinderGeometry(0.006, 0.007, 0.024, 8);
   private smokeGeo = new THREE.PlaneGeometry(1, 1);
   private tracerBeamGeo = new THREE.PlaneGeometry(1.6, 0.045);
 
-  // Scratch unit vector for rotation alignment
   private readonly _forward = new THREE.Vector3(0, 0, -1);
   private readonly _ejectDir = new THREE.Vector3();
 
@@ -103,7 +97,7 @@ export class BulletTracerManager {
         life: 0,
         speed: 320,
         totalDist: 0,
-        active: false
+        active: false,
       });
     }
   }
@@ -115,7 +109,7 @@ export class BulletTracerManager {
         transparent: true,
         opacity: 0.5,
         depthWrite: false,
-        side: THREE.DoubleSide
+        side: THREE.DoubleSide,
       });
       const mesh = new THREE.Mesh(this.smokeGeo, mat);
       mesh.visible = false;
@@ -128,7 +122,7 @@ export class BulletTracerManager {
         scale: 0.08,
         life: 0,
         maxLife: 0.28,
-        active: false
+        active: false,
       });
     }
   }
@@ -144,14 +138,11 @@ export class BulletTracerManager {
         velocity: new THREE.Vector3(),
         rotVelocity: new THREE.Vector3(),
         life: 0,
-        active: false
+        active: false,
       });
     }
   }
 
-  /**
-   * Spawns a luminous, high-speed 3D bullet tracer from pre-allocated memory pool
-   */
   public spawnTracer(from: THREE.Vector3, to: THREE.Vector3): void {
     const t = this.tracerPool[this.tracerIndex];
     this.tracerIndex = (this.tracerIndex + 1) % this.MAX_TRACERS;
@@ -174,9 +165,6 @@ export class BulletTracerManager {
     t.active = true;
   }
 
-  /**
-   * Spawns expanding muzzle propellant smoke from pre-allocated pool
-   */
   public spawnMuzzleSmoke(pos: THREE.Vector3, cameraRot: THREE.Euler): void {
     const s = this.smokePool[this.smokeIndex];
     this.smokeIndex = (this.smokeIndex + 1) % this.MAX_SMOKE;
@@ -191,7 +179,7 @@ export class BulletTracerManager {
     s.velocity.set(
       (Math.random() - 0.5) * 0.3,
       0.35 + Math.random() * 0.25,
-      (Math.random() - 0.5) * 0.3
+      (Math.random() - 0.5) * 0.3,
     );
 
     s.life = 0.28;
@@ -199,9 +187,6 @@ export class BulletTracerManager {
     s.active = true;
   }
 
-  /**
-   * Spawns an ejecting brass shell casing from pre-allocated pool
-   */
   public spawnShell(chamberPos: THREE.Vector3, cameraRot: THREE.Euler): void {
     const s = this.shellPool[this.shellIndex];
     this.shellIndex = (this.shellIndex + 1) % this.MAX_SHELLS;
@@ -209,17 +194,19 @@ export class BulletTracerManager {
     s.mesh.position.copy(chamberPos);
     s.mesh.visible = true;
 
-    this._ejectDir.set(
-      2.0 + Math.random() * 0.9,
-      1.4 + Math.random() * 0.8,
-      -0.6 + Math.random() * 0.4
-    ).applyEuler(cameraRot);
+    this._ejectDir
+      .set(
+        2.0 + Math.random() * 0.9,
+        1.4 + Math.random() * 0.8,
+        -0.6 + Math.random() * 0.4,
+      )
+      .applyEuler(cameraRot);
 
     s.velocity.copy(this._ejectDir);
     s.rotVelocity.set(
       (Math.random() - 0.5) * 45,
       (Math.random() - 0.5) * 45,
-      (Math.random() - 0.5) * 45
+      (Math.random() - 0.5) * 45,
     );
 
     s.life = 0.85;
@@ -227,15 +214,19 @@ export class BulletTracerManager {
   }
 
   public getActiveCount(): { tracers: number; smoke: number; shells: number } {
-    let tracers = 0, smoke = 0, shells = 0;
-    for (let i = 0; i < this.MAX_TRACERS; i++) if (this.tracerPool[i].active) tracers++;
-    for (let i = 0; i < this.MAX_SMOKE; i++) if (this.smokePool[i].active) smoke++;
-    for (let i = 0; i < this.MAX_SHELLS; i++) if (this.shellPool[i].active) shells++;
+    let tracers = 0,
+      smoke = 0,
+      shells = 0;
+    for (let i = 0; i < this.MAX_TRACERS; i++)
+      if (this.tracerPool[i].active) tracers++;
+    for (let i = 0; i < this.MAX_SMOKE; i++)
+      if (this.smokePool[i].active) smoke++;
+    for (let i = 0; i < this.MAX_SHELLS; i++)
+      if (this.shellPool[i].active) shells++;
     return { tracers, smoke, shells };
   }
 
   public update(delta: number): void {
-    // 1. Update 3D Tracers
     for (let i = 0; i < this.MAX_TRACERS; i++) {
       const t = this.tracerPool[i];
       if (!t.active) continue;
@@ -252,7 +243,6 @@ export class BulletTracerManager {
       }
     }
 
-    // 2. Update Muzzle Smoke Puffs
     for (let i = 0; i < this.MAX_SMOKE; i++) {
       const s = this.smokePool[i];
       if (!s.active) continue;
@@ -272,7 +262,6 @@ export class BulletTracerManager {
       }
     }
 
-    // 3. Update Tumbling Brass Shells
     for (let i = 0; i < this.MAX_SHELLS; i++) {
       const s = this.shellPool[i];
       if (!s.active) continue;

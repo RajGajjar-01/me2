@@ -49,8 +49,7 @@ export class InputManager {
       }
       if (!this.isLocked) {
         this.keys.clear();
-        // justPressedKeys too: update() doesn't run while unlocked, so anything
-        // tapped on the pause overlay would stay queued and fire on resume.
+
         this.justPressedKeys.clear();
         this.mouseButtons.clear();
       }
@@ -72,10 +71,14 @@ export class InputManager {
       this.mouseButtons.delete(e.button);
     });
 
-    window.addEventListener('wheel', (e) => {
-      if (!this.isLocked) return;
-      this.wheelDelta += Math.sign(e.deltaY);
-    }, { passive: true });
+    window.addEventListener(
+      'wheel',
+      (e) => {
+        if (!this.isLocked) return;
+        this.wheelDelta += Math.sign(e.deltaY);
+      },
+      { passive: true },
+    );
 
     window.addEventListener('contextmenu', (e) => {
       if (this.isLocked) e.preventDefault();
@@ -104,7 +107,7 @@ export class InputManager {
   }
 
   public isAnyKeyDown(...keys: string[]): boolean {
-    return keys.some(k => this.keys.has(k.toLowerCase()));
+    return keys.some((k) => this.keys.has(k.toLowerCase()));
   }
 
   public isMouseDown(button: number): boolean {
@@ -120,7 +123,7 @@ export class InputManager {
   public consumeMouseDelta(): { x: number; y: number } {
     const delta = {
       x: this.mouseDeltaX * this.sensitivity,
-      y: this.mouseDeltaY * this.sensitivity
+      y: this.mouseDeltaY * this.sensitivity,
     };
     this.mouseDeltaX = 0;
     this.mouseDeltaY = 0;

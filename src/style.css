@@ -6,8 +6,8 @@
   --red-alert: #ff3344;
   --text-primary: #e6ebf2;
   --text-muted: #758092;
-  --font-display: 'Chakra Petch', sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-display: "Chakra Petch", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
 }
 
 * {
@@ -18,7 +18,8 @@
   -webkit-user-select: none;
 }
 
-body, html {
+body,
+html {
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -39,7 +40,6 @@ body, html {
   display: block;
 }
 
-/* ==================== TACTICAL HUD ==================== */
 #hud {
   position: absolute;
   top: 0;
@@ -54,7 +54,6 @@ body, html {
   opacity: 0;
 }
 
-/* Reticle / Crosshair */
 #crosshair-container {
   position: absolute;
   top: 50%;
@@ -75,8 +74,7 @@ body, html {
   background-color: rgba(255, 255, 255, 0.95);
   transform: translate(-50%, -50%);
   border-radius: 50%;
-  /* Dark halo, not a coloured glow: keeps the reticle readable on light ground
-     and on the sky without tinting it. */
+
   box-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
 }
 
@@ -115,17 +113,23 @@ body, html {
   top: calc(50% - 1px);
 }
 
-/* Crosshair spread states */
 .spread-aim #crosshair-container {
   opacity: 0.15;
 }
 
-.spread-fire .reticle-line.top { transform: translateY(-4px); }
-.spread-fire .reticle-line.bottom { transform: translateY(4px); }
-.spread-fire .reticle-line.left { transform: translateX(-4px); }
-.spread-fire .reticle-line.right { transform: translateX(4px); }
+.spread-fire .reticle-line.top {
+  transform: translateY(-4px);
+}
+.spread-fire .reticle-line.bottom {
+  transform: translateY(4px);
+}
+.spread-fire .reticle-line.left {
+  transform: translateX(-4px);
+}
+.spread-fire .reticle-line.right {
+  transform: translateX(4px);
+}
 
-/* Hitmarker */
 #hitmarker {
   position: absolute;
   top: 50%;
@@ -134,7 +138,9 @@ body, html {
   width: 28px;
   height: 28px;
   opacity: 1;
-  transition: opacity 0.15s ease-out, transform 0.15s ease-out;
+  transition:
+    opacity 0.15s ease-out,
+    transform 0.15s ease-out;
 }
 
 #hitmarker.hitmarker-hidden {
@@ -150,10 +156,26 @@ body, html {
   box-shadow: 0 0 6px var(--red-alert);
 }
 
-.hit-slash.tl { top: 3px; left: 3px; transform: rotate(45deg); }
-.hit-slash.tr { top: 3px; right: 3px; transform: rotate(-45deg); }
-.hit-slash.bl { bottom: 3px; left: 3px; transform: rotate(-45deg); }
-.hit-slash.br { bottom: 3px; right: 3px; transform: rotate(45deg); }
+.hit-slash.tl {
+  top: 3px;
+  left: 3px;
+  transform: rotate(45deg);
+}
+.hit-slash.tr {
+  top: 3px;
+  right: 3px;
+  transform: rotate(-45deg);
+}
+.hit-slash.bl {
+  bottom: 3px;
+  left: 3px;
+  transform: rotate(-45deg);
+}
+.hit-slash.br {
+  bottom: 3px;
+  right: 3px;
+  transform: rotate(45deg);
+}
 
 #hitmarker.headshot {
   transform: translate(-50%, -50%) scale(1.35);
@@ -166,7 +188,6 @@ body, html {
   height: 3px;
 }
 
-/* Top Status Bar */
 #top-bar {
   position: absolute;
   top: 24px;
@@ -204,9 +225,18 @@ body, html {
 }
 
 @keyframes pulse {
-  0% { transform: scale(0.9); opacity: 0.7; }
-  50% { transform: scale(1.3); opacity: 1; }
-  100% { transform: scale(0.9); opacity: 0.7; }
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
 }
 
 .range-metric {
@@ -228,7 +258,6 @@ body, html {
   color: var(--cyan-accent);
 }
 
-/* Bottom Left: Operator Status */
 #bottom-left {
   position: absolute;
   bottom: 32px;
@@ -284,7 +313,6 @@ body, html {
   color: rgba(255, 255, 255, 0.15);
 }
 
-/* Bottom Right: Ammo & Weapon */
 #bottom-right {
   position: absolute;
   bottom: 32px;
@@ -364,20 +392,25 @@ body, html {
   box-shadow: 0 0 8px var(--amber-dim);
 }
 
-/* ==================== START / OVERLAY SCREEN ==================== */
 #overlay-screen {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background: radial-gradient(circle at center, rgba(14, 18, 26, 0.88) 0%, rgba(5, 7, 10, 0.98) 100%);
+  background: radial-gradient(
+    circle at center,
+    rgba(14, 18, 26, 0.88) 0%,
+    rgba(5, 7, 10, 0.98) 100%
+  );
   backdrop-filter: blur(12px);
   display: flex;
   justify-content: center;
   align-items: center;
   z-index: 100;
-  transition: opacity 0.35s ease, visibility 0.35s ease;
+  transition:
+    opacity 0.35s ease,
+    visibility 0.35s ease;
 }
 
 #overlay-screen.hidden {
@@ -393,7 +426,9 @@ body, html {
   border: 1px solid rgba(255, 157, 0, 0.3);
   padding: 40px;
   border-radius: 6px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.7), 0 0 30px rgba(255, 157, 0, 0.08);
+  box-shadow:
+    0 16px 40px rgba(0, 0, 0, 0.7),
+    0 0 30px rgba(255, 157, 0, 0.08);
   text-align: center;
 }
 
@@ -451,7 +486,6 @@ body, html {
   color: var(--text-muted);
 }
 
-/* Loader Progress Bar */
 #loader-container {
   width: 100%;
   margin-bottom: 22px;
@@ -539,9 +573,6 @@ body, html {
   letter-spacing: 1.5px;
 }
 
-/* ==========================================================================
-   TACTICAL TELEMETRY & LIVE PERFORMANCE GRAPHS
-   ========================================================================== */
 #telemetry-panel {
   position: fixed;
   top: 24px;
@@ -558,8 +589,12 @@ body, html {
   font-variant-numeric: tabular-nums;
   z-index: 50;
   box-sizing: border-box;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 12px rgba(56, 189, 248, 0.15);
-  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.6),
+    0 0 12px rgba(56, 189, 248, 0.15);
+  transition:
+    transform 0.3s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.3s ease;
   user-select: none;
   pointer-events: auto;
 }
@@ -605,8 +640,13 @@ body, html {
 }
 
 @keyframes pulse-telemetry {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.35; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .telemetry-toggle {
@@ -689,8 +729,12 @@ body, html {
   display: inline-block;
 }
 
-.legend-line.green { background: #4ade80; }
-.legend-line.yellow { background: #facc15; }
+.legend-line.green {
+  background: #4ade80;
+}
+.legend-line.yellow {
+  background: #facc15;
+}
 
 .radar-wrapper {
   display: flex;
@@ -741,9 +785,6 @@ body, html {
   color: #4ade80;
 }
 
-/* ==========================================================================
-   Screen-Space Combat HUD (Floating Damage Numbers, Target Analyzer, Kill Banner)
-   ========================================================================== */
 #combat-hud {
   position: absolute;
   top: 0;
@@ -763,7 +804,6 @@ body, html {
   height: 100%;
 }
 
-/* Valorant Floating Damage Text */
 .combat-float-num {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -779,7 +819,9 @@ body, html {
 .combat-float-num.body {
   font-size: 20px;
   color: #fff;
-  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9), 0 2px 8px rgba(250, 204, 21, 0.7);
+  text-shadow:
+    0 0 6px rgba(0, 0, 0, 0.9),
+    0 2px 8px rgba(250, 204, 21, 0.7);
 }
 
 .combat-float-num.body .dmg-val {
@@ -789,7 +831,10 @@ body, html {
 .combat-float-num.headshot {
   font-size: 26px;
   color: #ef4444;
-  text-shadow: 0 0 10px rgba(239, 68, 68, 0.9), 0 0 20px rgba(239, 68, 68, 0.6), 0 2px 4px #000;
+  text-shadow:
+    0 0 10px rgba(239, 68, 68, 0.9),
+    0 0 20px rgba(239, 68, 68, 0.6),
+    0 2px 4px #000;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -820,7 +865,7 @@ body, html {
     transform: translate(-50%, -10px) scale(1.15);
   }
   35% {
-    transform: translate(-50%, -20px) scale(1.0);
+    transform: translate(-50%, -20px) scale(1);
   }
   100% {
     opacity: 0;
@@ -828,7 +873,6 @@ body, html {
   }
 }
 
-/* Tactical Target Health Analyzer (Top Center) */
 #target-analyzer {
   position: absolute;
   top: 70px;
@@ -841,7 +885,9 @@ body, html {
   border-radius: 4px;
   padding: 8px 12px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
-  transition: opacity 0.25s ease, transform 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease;
 }
 
 #target-analyzer.analyzer-hidden {
@@ -902,11 +948,12 @@ body, html {
   height: 100%;
   background: #00ff88;
   border-radius: 2px;
-  transition: width 0.15s ease-out, background 0.2s ease;
+  transition:
+    width 0.15s ease-out,
+    background 0.2s ease;
   box-shadow: 0 0 6px currentColor;
 }
 
-/* Valorant-Style Kill Banner */
 #kill-banner {
   position: absolute;
   bottom: 175px;
@@ -917,13 +964,21 @@ body, html {
   align-items: center;
   justify-content: center;
   padding: 10px 28px;
-  background: linear-gradient(180deg, rgba(239, 68, 68, 0.25) 0%, rgba(10, 10, 15, 0.9) 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(239, 68, 68, 0.25) 0%,
+    rgba(10, 10, 15, 0.9) 100%
+  );
   border: 1px solid rgba(239, 68, 68, 0.8);
   border-radius: 6px;
-  box-shadow: 0 0 30px rgba(239, 68, 68, 0.4), inset 0 0 15px rgba(239, 68, 68, 0.2);
+  box-shadow:
+    0 0 30px rgba(239, 68, 68, 0.4),
+    inset 0 0 15px rgba(239, 68, 68, 0.2);
   user-select: none;
   pointer-events: none;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 
 #kill-banner.kill-banner-hidden {
@@ -971,15 +1026,14 @@ body, html {
     transform: translateX(-50%) scale(1.1);
   }
   24% {
-    transform: translateX(-50%) scale(1.0);
+    transform: translateX(-50%) scale(1);
   }
   75% {
     opacity: 1;
-    transform: translateX(-50%) scale(1.0);
+    transform: translateX(-50%) scale(1);
   }
   100% {
     opacity: 0;
     transform: translateX(-50%) translateY(-15px) scale(0.95);
   }
 }
-
