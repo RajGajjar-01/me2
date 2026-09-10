@@ -17,6 +17,7 @@ const mouse = { x: 0, y: 0 };
 const input = {
   consumeMouseDelta: () => { const m = { ...mouse }; mouse.x = mouse.y = 0; return m; },
   isKeyDown: () => false,
+  isKeyPressed: () => false,
   isAnyKeyDown: () => false
 };
 const bvh = { shapecast: () => {} };

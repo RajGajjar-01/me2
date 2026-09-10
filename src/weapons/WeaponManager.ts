@@ -51,6 +51,12 @@ export class WeaponManager {
   public cameraRecoilPitch = 0;
   public cameraRecoilYaw = 0;
 
+  /**
+   * Recoil scale from the player's stance — bracing is the main reason to get low.
+   * Driven from main.ts each frame; 1 standing, 0.75 crouched, 0.5 prone.
+   */
+  public stanceKickMult = 1;
+
   public totalShots = 0;
   public totalHits = 0;
 
@@ -331,7 +337,7 @@ export class WeaponManager {
     if (this.input.isKeyPressed('Digit1')) this.selectWeapon(0);
     if (this.input.isKeyPressed('Digit2')) this.selectWeapon(1);
     if (this.input.isKeyPressed('Digit3')) this.selectWeapon(2);
-    if (this.input.isKeyPressed('KeyQ')) {
+    if (this.input.isKeyPressed('KeyX')) {
       this.selectWeapon(
         this.previousWeaponIndex === this.currentWeaponIndex
           ? (this.currentWeaponIndex + 1) % this.weapons.length
@@ -547,7 +553,7 @@ export class WeaponManager {
     }
 
     // Recoil impulse
-    const kickMult = this.isAiming ? 0.75 : 1.0;
+    const kickMult = (this.isAiming ? 0.75 : 1.0) * this.stanceKickMult;
     const n = this.burstShot;
     // Consecutive shots hit harder; caps out so a full mag stays controllable.
     const escalate = 1 + Math.min(n, 9) * 0.11;
@@ -560,7 +566,7 @@ export class WeaponManager {
 
     // --- Real aim kick: this actually moves where the player is pointing ---
     const rc = weapon.recoilForce;
-    const adsMult = this.isAiming ? 0.55 : 1.0;
+    const adsMult = (this.isAiming ? 0.55 : 1.0) * this.stanceKickMult;
     let pitchKick = rc.camPitch * escalate * adsMult * (0.88 + Math.random() * 0.24);
     let yawKick: number;
 

@@ -49,6 +49,9 @@ export class InputManager {
       }
       if (!this.isLocked) {
         this.keys.clear();
+        // justPressedKeys too: update() doesn't run while unlocked, so anything
+        // tapped on the pause overlay would stay queued and fire on resume.
+        this.justPressedKeys.clear();
         this.mouseButtons.clear();
       }
     });

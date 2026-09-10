@@ -192,6 +192,9 @@ class GameApp {
     if (this.isLoaded && this.player) {
       if (this.input.isLocked) {
         if (this.weapons) {
+          // Getting low braces the gun — stance scales the whole recoil impulse.
+          this.weapons.stanceKickMult =
+            this.player.stance === 'prone' ? 0.5 : this.player.stance === 'crouch' ? 0.75 : 1;
           this.weapons.update(delta, this.player.getSpeed(), this.player.onGround);
         }
         this.player.update(delta);
@@ -232,6 +235,10 @@ class GameApp {
 
     if (!this.player.onGround) {
       this.postureText.textContent = 'AIR';
+    } else if (this.player.stance === 'prone') {
+      this.postureText.textContent = 'PRONE';
+    } else if (this.player.stance === 'crouch') {
+      this.postureText.textContent = 'CROUCH';
     } else if (this.player.isSprinting) {
       this.postureText.textContent = 'SPRINT';
     } else if (speed > 0.5) {
