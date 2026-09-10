@@ -9,8 +9,8 @@ const NEAR = 0.05;
 const rigRearZ = (scale, offsetZ, rawMaxZ) => rawMaxZ * scale + offsetZ;
 
 const weapons = [
-  { name: 'AK-47',        scale: 0.88, offsetZ: -0.53, rawMaxZ: 0.5,   ads: -0.15, idle: -0.19 },
-  { name: 'BREACHER 12G', scale: 0.38, offsetZ: -0.36, rawMaxZ: 0.89,  ads: -0.16, idle: -0.24 }
+  { name: 'AK-47',        scale: 0.88, offsetZ: -0.53, rawMaxZ: 0.5,   ads: -0.03, idle: -0.19 },
+  { name: 'BREACHER 12G', scale: 0.38, offsetZ: -0.36, rawMaxZ: 0.89,  ads: -0.10, idle: -0.24 }
 ];
 
 // Worst case: ADS pull + the reload animation's forward dip (+0.06 on Z).

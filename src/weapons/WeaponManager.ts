@@ -64,8 +64,10 @@ export class WeaponManager {
       currentAmmo: 30,
       reserveAmmo: 120,
       damage: 48,
-      idleOffset: new THREE.Vector3(0.18, -0.20, -0.19),
-      adsOffset: new THREE.Vector3(0.0, -0.125, -0.15), // -0.142 sight height x 0.88 scale
+      idleOffset: new THREE.Vector3(0.25, -0.285, -0.19),
+      // ADS (right-click): sight height -0.125 centres the old-gun sights; Z -0.03
+      // pulls the rear close so the stock drops below the frame.
+      adsOffset: new THREE.Vector3(0.0, -0.125, -0.03),
       recoilForce: { posZ: 0.052, rotX: 0.08, camPitch: 0.026, camYaw: 0.012, spray: 'ak' },
       reloadTime: 2.0,
       reloadStyle: 'mag'
@@ -79,7 +81,10 @@ export class WeaponManager {
       currentAmmo: 15,
       reserveAmmo: 60,
       damage: 36,
-      idleOffset: new THREE.Vector3(0.13, -0.15, -0.24),
+      idleOffset: new THREE.Vector3(0.15, -0.125, -0.24),
+      // ADS unchanged: grip rear (9cm behind the root, the closest point on any
+      // rig to the eye) already projects below the frame while the slide/sights
+      // stay centred — moving Z any closer would slice the grip on the near plane.
       adsOffset: new THREE.Vector3(0.0, -0.055, -0.18),
       recoilForce: { posZ: 0.038, rotX: 0.06, camPitch: 0.014, camYaw: 0.005, spray: 'simple' },
       reloadTime: 1.9,
@@ -94,8 +99,12 @@ export class WeaponManager {
       currentAmmo: 6,
       reserveAmmo: 30,
       damage: 22, // per pellet — 8 pellets on target is a one-shot kill up close
-      idleOffset: new THREE.Vector3(0.17, -0.19, -0.24),
-      adsOffset: new THREE.Vector3(0.0, -0.115, -0.16),
+      idleOffset: new THREE.Vector3(0.20, -0.26, -0.24),
+      // ADS: bead (rig top +0.0425) centred on the crosshair (was ~6% low), breech
+      // drops to a bottom-edge sliver like looking down a real rib. Z pulled closer
+      // (-0.10) so the butt (rear only 22mm behind the root) clears the frame bottom
+      // while staying clear of the near plane even under the reload dip.
+      adsOffset: new THREE.Vector3(0.0, -0.075, -0.10),
       recoilForce: { posZ: 0.085, rotX: 0.14, camPitch: 0.085, camYaw: 0.018, spray: 'simple' },
       reloadTime: 2.8,
       reloadStyle: 'shells',
@@ -339,7 +348,8 @@ export class WeaponManager {
     this.isAiming = this.input.isMouseDown(2) && !this.isReloading && !this.isSwapping;
     this.targetOffset.copy(this.isAiming ? weapon.adsOffset : weapon.idleOffset);
 
-    const targetFov = this.isAiming ? 54 : 75;
+    // ADS zoom (right-click): 48° FOV.
+    const targetFov = this.isAiming ? 48 : 75;
     this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, 14 * delta);
     this.camera.updateProjectionMatrix();
 
