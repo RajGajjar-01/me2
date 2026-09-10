@@ -88,6 +88,12 @@ class GameApp {
       );
       // Recoil moves the player's real aim, not a cosmetic camera offset.
       this.weapons.onRecoil = (pitch, yaw) => this.player!.applyRecoil(pitch, yaw);
+      // The player has no audio dependency of its own; it just says when a step landed.
+      // Crouching is a deliberately quiet way to move, and a crawl quieter still.
+      this.player.onFootstep = (stance, isSprinting) => {
+        const gain = stance === 'prone' ? 0.12 : stance === 'crouch' ? 0.3 : isSprinting ? 0.75 : 0.55;
+        this.weapons.soundEngine.playFootstep(gain, isSprinting ? 1.12 : 1.0);
+      };
       await this.weapons.loadAssets((status) => {
         this.loaderStatus.textContent = status;
         this.loaderPercent.textContent = '95%';

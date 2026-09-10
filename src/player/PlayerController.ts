@@ -78,6 +78,24 @@ export class PlayerController {
   // Head bobbing
   private bobTimer = 0;
 
+  // Footsteps are driven by distance travelled, not a timer: one step per stride
+  // length of ground covered. That self-corrects for every speed the player can
+  // move at — sprint, walk, crouch, crawl — without a second cadence table to keep
+  // in sync with STANCES. Stride shortens with stance because a crawl advances the
+  // body in short shuffles. See test_footsteps.mjs.
+  //
+  // The strides are constrained, not free: cadence is speed / stride, so a stride
+  // that is too short for its stance's speed makes the lower stance step *faster*
+  // than the higher one. Crouch has to stay above 3.7 / 3.25 = 1.14m to stay
+  // slower-footed than a walk. test_footsteps.mjs asserts the ordering.
+  private static readonly STRIDE = { stand: 1.6, crouch: 1.3, prone: 0.9 } as const;
+  /** A run lengthens the stride as well as speeding it up — without this, sprinting
+   *  hits 5.4 steps/s and reads as a machine gun rather than a sprint. */
+  private static readonly SPRINT_STRIDE = 1.35;
+  private strideAccum = 0;
+  /** Fired each time a full stride has been covered on the ground. main.ts wires audio. */
+  public onFootstep?: (stance: 'stand' | 'crouch' | 'prone', isSprinting: boolean) => void;
+
   // Mantle / vault: grabs a ledge up to MANTLE_MAX_HEIGHT above the player's
   // current feet. Reachable both grounded (e.g. sandbags at 1.0m) and mid-air
   // (jump apex raises the feet by ~1.156m, so a container top at 2.6m is only
@@ -246,6 +264,8 @@ export class PlayerController {
       }
     }
 
+    const prevX = this.capsulePosition.x;
+    const prevZ = this.capsulePosition.z;
 
     // 6. Sub-stepping physics (2 sub-steps) for buttery smooth collision stability,
     // or - while mantling - a suppressed-gravity interpolation onto the ledge.
@@ -276,6 +296,21 @@ export class PlayerController {
       this.bobTimer = 0;
     }
 
+    // 7b. Footsteps, from ground actually covered — walking into a wall moves the
+    // capsule nowhere and so makes no noise, whatever the input says.
+    if (this.onGround && !this.isMantling) {
+      const dx = this.capsulePosition.x - prevX;
+      const dz = this.capsulePosition.z - prevZ;
+      this.strideAccum += Math.sqrt(dx * dx + dz * dz);
+      const stride =
+        PlayerController.STRIDE[this.stance] * (this.isSprinting ? PlayerController.SPRINT_STRIDE : 1);
+      if (this.strideAccum >= stride) {
+        this.strideAccum %= stride; // carry the remainder so fast steps don't drift late
+        this.onFootstep?.(this.stance, this.isSprinting);
+      }
+    } else {
+      this.strideAccum = 0; // airborne/mantling: no leftover step waiting to fire on landing
+    }
     this.syncCamera();
   }
 

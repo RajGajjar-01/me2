@@ -21,7 +21,9 @@ export const SOUNDS = {
   /** Serves both single taps and sustained fire — see SoundEngine.playRifleShot. */
   ak47: '/sounds/ak47.mp3',
   shotgun: '/sounds/shotgun.mp3',
-  reload: '/sounds/reload.mp3'
+  reload: '/sounds/reload.mp3',
+  /** One boot on concrete, retuned per step — see SoundEngine.playFootstep. */
+  footstep: '/sounds/footstep.mp3'
 } as const;
 
 export type ModelKey = keyof typeof MODELS;

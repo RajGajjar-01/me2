@@ -58,12 +58,18 @@ export class SoundEngine {
    */
   private playSample(
     name: string,
-    opts: { gain?: number; detune?: number; levelJitter?: number; duckOlder?: number } = {}
+    opts: {
+      gain?: number;
+      rate?: number;
+      detune?: number;
+      levelJitter?: number;
+      duckOlder?: number;
+    } = {}
   ): boolean {
     const buf = this.samples.get(name);
     if (!buf) return false;
 
-    const { gain = 1.0, detune = 0.0, levelJitter = 0.0, duckOlder } = opts;
+    const { gain = 1.0, rate = 1.0, detune = 0.0, levelJitter = 0.0, duckOlder } = opts;
 
     const ctx = this.initContext();
     const now = ctx.currentTime;
@@ -92,13 +98,14 @@ export class SoundEngine {
 
     const src = ctx.createBufferSource();
     src.buffer = buf;
-    src.playbackRate.value = 1 + (Math.random() - 0.5) * detune;
+    src.playbackRate.value = rate + (Math.random() - 0.5) * detune;
 
     const g = ctx.createGain();
     g.gain.setValueAtTime(gain * (1 + (Math.random() - 0.5) * levelJitter), now);
 
     src.connect(g);
     g.connect(ctx.destination);
+
     src.start(now);
 
     const voice = { src, gain: g };
@@ -117,6 +124,7 @@ export class SoundEngine {
   public hasSample(name: string): boolean {
     return this.samples.has(name);
   }
+
 
   private initContext(): AudioContext {
     if (!this.ctx) {
@@ -487,6 +495,42 @@ export class SoundEngine {
   public playReloadCycle(): boolean {
     if (this.isMuted) return true;
     return this.playSample('reload', { gain: 0.9 });
+  }
+
+  /**
+   * One boot hitting the ground. `gain` carries the stance (a crawl is not a march)
+   * and `rate` the sprint — a faster playback rate reads as a harder, sharper step.
+   * The detune/jitter is what stops a run from sounding like the same click looped.
+   */
+  public playFootstep(gain: number, rate = 1.0): void {
+    if (this.isMuted) return;
+    if (this.playSample('footstep', { gain, rate, detune: 0.12, levelJitter: 0.3 })) return;
+
+    const ctx = this.initContext();
+    const now = ctx.currentTime;
+
+    // Fallback: a short filtered noise burst — a scuff, not a click.
+    const size = ctx.sampleRate * 0.09;
+    const buf = ctx.createBuffer(1, size, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < size; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.016));
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(900 * rate, now);
+
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(gain * (0.85 + Math.random() * 0.3), now);
+    g.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+
+    src.connect(filter);
+    filter.connect(g);
+    g.connect(ctx.destination);
+    src.start(now);
   }
 
   /** Charging handle yanked back and released onto a fresh round. */
