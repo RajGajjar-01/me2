@@ -16,6 +16,13 @@ export class SoundEngine {
   /** Hard ceiling on overlapping copies of one sample, so a long mag can't run away. */
   private static readonly MAX_VOICES = 8;
 
+  /** Lazily-built convolution reverb send — see getReverbBus(). */
+  private reverbBus: GainNode | null = null;
+  /** Tail length of the compound. Longer reads as a bigger, more distant valley. */
+  private static readonly REVERB_SECONDS = 1.9;
+  /** Return level of the wet bus — the one knob to turn if the range sounds too wet. */
+  private static readonly REVERB_WET = 0.34;
+
   constructor() {}
 
   /**
@@ -64,12 +71,13 @@ export class SoundEngine {
       detune?: number;
       levelJitter?: number;
       duckOlder?: number;
+      reverb?: number;
     } = {}
   ): boolean {
     const buf = this.samples.get(name);
     if (!buf) return false;
 
-    const { gain = 1.0, rate = 1.0, detune = 0.0, levelJitter = 0.0, duckOlder } = opts;
+    const { gain = 1.0, rate = 1.0, detune = 0.0, levelJitter = 0.0, duckOlder, reverb = 0 } = opts;
 
     const ctx = this.initContext();
     const now = ctx.currentTime;
@@ -106,6 +114,17 @@ export class SoundEngine {
     src.connect(g);
     g.connect(ctx.destination);
 
+    if (reverb > 0) {
+      // Fed from `src`, deliberately upstream of `g`: duckOlder pulls down the DRY
+      // level of rounds already ringing, and a tail yanked down with it would undo
+      // the point of having a room. This way the compound keeps ringing while each
+      // new report takes the front of the mix.
+      const send = ctx.createGain();
+      send.gain.value = gain * reverb;
+      src.connect(send);
+      send.connect(this.getReverbBus());
+    }
+
     src.start(now);
 
     const voice = { src, gain: g };
@@ -125,6 +144,51 @@ export class SoundEngine {
     return this.samples.has(name);
   }
 
+  /**
+   * Shared convolution reverb for the open-air compound, built once on first use.
+   *
+   * The impulse response is generated rather than loaded: a decaying noise burst is
+   * all a convolver needs, and a real IR file would be a bigger download than every
+   * gun sample combined. The decay is tilted steeply toward the start and a few
+   * discrete early reflections are stamped in, so it reads as a walled compound
+   * slapping the report back at you rather than as a concert hall.
+   *
+   * Returns the bus *input* — connect a send gain to it.
+   */
+  private getReverbBus(): GainNode {
+    if (this.reverbBus) return this.reverbBus;
+    const ctx = this.initContext();
+
+    const size = Math.floor(ctx.sampleRate * SoundEngine.REVERB_SECONDS);
+    const ir = ctx.createBuffer(2, size, ctx.sampleRate);
+    for (let ch = 0; ch < 2; ch++) {
+      const d = ir.getChannelData(ch);
+      for (let i = 0; i < size; i++) {
+        // Independent noise per channel is what decorrelates the tail into stereo.
+        d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / size, 2.6);
+      }
+      // Early reflections off the container walls and berms. Flipped in phase on the
+      // right so the slap has a direction instead of collapsing to the centre.
+      for (const [ms, amp] of [[37, 0.5], [61, 0.34], [98, 0.2]] as const) {
+        const at = Math.floor((ctx.sampleRate * ms) / 1000);
+        if (at < size) d[at] += amp * (ch === 0 ? 1 : -0.85);
+      }
+    }
+
+    const convolver = ctx.createConvolver();
+    convolver.buffer = ir;
+
+    const wet = ctx.createGain();
+    wet.gain.value = SoundEngine.REVERB_WET;
+
+    const bus = ctx.createGain();
+    bus.connect(convolver);
+    convolver.connect(wet);
+    wet.connect(ctx.destination);
+
+    this.reverbBus = bus;
+    return bus;
+  }
 
   private initContext(): AudioContext {
     if (!this.ctx) {
@@ -203,7 +267,7 @@ export class SoundEngine {
     // weapon's fire rate, with each new round ducking the previous rounds' tails so
     // they decay away instead of stacking. Because tap and hold are literally the
     // same file, they cannot drift apart in tone the way two takes would.
-    if (this.playSample('ak47', { gain: 0.95, detune: 0.03, duckOlder: 0.34 })) return;
+    if (this.playSample('ak47', { gain: 0.95, detune: 0.03, duckOlder: 0.34, reverb: 0.5 })) return;
 
     const ctx = this.initContext();
     const now = ctx.currentTime;
@@ -409,7 +473,7 @@ export class SoundEngine {
    */
   public playShotgunShot(): void {
     if (this.isMuted) return;
-    if (this.playSample('shotgun', { gain: 1.0, detune: 0.05, levelJitter: 0.16, duckOlder: 0.5 })) {
+    if (this.playSample('shotgun', { gain: 1.0, detune: 0.05, levelJitter: 0.16, duckOlder: 0.5, reverb: 0.58 })) {
       this.layerSubThump(0.95, 115, 20, 0.32);
       this.layerOutdoorTail(0.38, 0.62, 620);
       return;
