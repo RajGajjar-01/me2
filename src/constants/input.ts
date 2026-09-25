@@ -18,6 +18,7 @@ export const INPUT = {
   SLOT_2: 'Digit2' as const,
   SLOT_3: 'Digit3' as const,
   QUICK_SWAP: 'KeyX' as const,
+  PHOTO_MODE: 'KeyP' as const,
   FIRE_MOUSE_BUTTON: 0,
   ADS_MOUSE_BUTTON: 2,
 } as const;

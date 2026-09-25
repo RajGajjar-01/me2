@@ -18,6 +18,7 @@ export class OutdoorRange {
   public colliderMesh!: THREE.Mesh;
   public bvh!: MeshBVH;
   public sunLight!: THREE.DirectionalLight;
+  public sky!: Sky;
 
   private tarmacTex!: THREE.CanvasTexture;
   private hazardTex!: THREE.CanvasTexture;
@@ -150,6 +151,7 @@ export class OutdoorRange {
 
   private setupSkyAndSun(): void {
     const sky = new Sky();
+    this.sky = sky;
     sky.scale.setScalar(450000);
     this.group.add(sky);
 

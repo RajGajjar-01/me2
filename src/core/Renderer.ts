@@ -5,27 +5,22 @@ export class GameRenderer {
   public renderer: THREE.WebGLRenderer;
   public scene: THREE.Scene;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, antialias: boolean) {
     this.scene = new THREE.Scene();
 
     this.scene.fog = new THREE.FogExp2(WORLD.FOG_COLOR, WORLD.FOG_DENSITY);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias,
       powerPreference: 'high-performance',
       stencil: false,
       depth: true,
     });
 
+    // Pixel ratio + shadow map are owned by GraphicsSettings.
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, WORLD.PIXEL_RATIO_MAX),
-    );
-
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = WORLD.TONE_MAPPING_EXPOSURE;
 
@@ -34,9 +29,6 @@ export class GameRenderer {
 
   private onWindowResize(): void {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(
-      Math.min(window.devicePixelRatio, WORLD.PIXEL_RATIO_MAX),
-    );
   }
 
   public compile(camera: THREE.Camera): void {

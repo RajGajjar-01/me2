@@ -4,6 +4,7 @@
 export * from './assets';
 export * from './audio';
 export * from './effects';
+export * from './graphics';
 export * from './input';
 export * from './player';
 export * from './weapons';

@@ -1,18 +1,23 @@
 import * as THREE from 'three';
 import { AUDIO } from './constants/audio';
+import { INPUT } from './constants/input';
 import { CAMERA, PLAYER } from './constants/player';
 import { WEAPONS } from './constants/weapons';
 import { WORLD } from './constants/world';
+import { GraphicsSettings } from './core/GraphicsSettings';
 import { InputManager } from './core/InputManager';
 import { GameRenderer } from './core/Renderer';
 import { OutdoorRange } from './environment/OutdoorRange';
 import { PlayerBody } from './player/PlayerBody';
 import { PlayerController } from './player/PlayerController';
 import { CombatHUD } from './ui/CombatHUD';
+import { SettingsPanel } from './ui/SettingsPanel';
 import { TacticalTelemetry } from './ui/TacticalTelemetry';
 import { WeaponManager } from './weapons/WeaponManager';
 
 class GameApp {
+  private gfx = new GraphicsSettings();
+  private settingsPanel: SettingsPanel;
   private renderer: GameRenderer;
   private input: InputManager;
   private range: OutdoorRange;
@@ -44,17 +49,21 @@ class GameApp {
   private slotTertiary = document.getElementById('slot-tertiary')!;
   private hitsCounter = document.getElementById('hits-counter')!;
   private accuracyCounter = document.getElementById('accuracy-counter')!;
+  private settingsBtn = document.getElementById('settings-btn')!;
+  private photoBadge = document.getElementById('photo-badge')!;
+  private photoSpp = document.getElementById('photo-spp')!;
 
   private frameCount = 0;
   private fpsTime = 0;
 
   constructor() {
     const canvas = document.getElementById('webgl-canvas') as HTMLCanvasElement;
-    this.renderer = new GameRenderer(canvas);
+    this.renderer = new GameRenderer(canvas, this.gfx.antialias);
     this.input = new InputManager(canvas);
     this.range = new OutdoorRange(this.renderer.scene);
     this.telemetry = new TacticalTelemetry();
     this.combatHud = new CombatHUD(document.getElementById('game-container')!);
+    this.settingsPanel = new SettingsPanel(this.gfx);
 
     this.setupUI();
     this.startAssetLoading();
@@ -70,6 +79,13 @@ class GameApp {
         this.loaderPercent.textContent = `${percent}%`;
         this.loaderStatus.textContent = status;
       });
+
+      this.gfx.attach(
+        this.renderer.renderer,
+        this.renderer.scene,
+        this.range.sunLight,
+        this.range.sky,
+      );
 
       this.player = new PlayerController(
         CAMERA.DEFAULT_FOV,
@@ -176,12 +192,15 @@ class GameApp {
   }
 
   private setupUI(): void {
+    this.settingsBtn.addEventListener('click', () => this.settingsPanel.open());
+
     this.startBtn.addEventListener('click', () => {
       if (!this.isLoaded) return;
       this.input.requestLock();
     });
 
     this.input.onLockChange = (locked) => {
+      if (!locked && this.gfx.inPhotoMode) this.togglePhotoMode();
       if (locked) {
         this.overlayScreen.classList.add('hidden');
         this.hud.classList.remove('hidden');
@@ -199,12 +218,28 @@ class GameApp {
     });
   }
 
-  private animate(): void {
+  private togglePhotoMode(): void {
+    this.gfx.togglePhotoMode(this.player.camera).then(() => {
+      this.photoBadge.classList.toggle('hidden', !this.gfx.inPhotoMode);
+    });
+  }
+
+  private animate(now: number): void {
     requestAnimationFrame(this.animate);
+    if (!this.gfx.shouldRenderFrame(now)) return;
 
     const delta = Math.min(this.clock.getDelta(), WORLD.FRAME_DELTA_MAX_S);
 
     if (this.isLoaded && this.player) {
+      if (this.input.isLocked && this.input.isKeyPressed(INPUT.PHOTO_MODE)) {
+        this.togglePhotoMode();
+      }
+      if (this.gfx.inPhotoMode) {
+        // Frozen frame: drop look input so the camera doesn't jump on exit.
+        this.input.consumeMouseDelta();
+        this.photoSpp.textContent = `${this.gfx.renderPhotoSample()}`;
+        return;
+      }
       if (this.input.isLocked) {
         if (this.weapons) {
           this.weapons.stanceKickMult =
@@ -225,6 +260,7 @@ class GameApp {
 
       this.updateHUD(delta);
       this.renderer.render(this.player.camera);
+      this.gfx.trackFrame(delta);
 
       this.telemetry.recordFrame(
         delta,

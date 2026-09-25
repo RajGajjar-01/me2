@@ -43,11 +43,13 @@
             <span class="metric-label">ACCURACY</span>
             <span class="metric-val" id="accuracy-counter">100%</span>
           </div>
-          <div class="range-metric">
+          <div class="range-metric" id="fps-metric">
             <span class="metric-label">FPS</span>
             <span class="metric-val" id="fps-counter">60</span>
           </div>
         </div>
+
+        <div id="photo-badge" class="hidden">RAY TRACING // <span id="photo-spp">0</span> SPP // [P] EXIT</div>
 
         <div id="bottom-left">
           <div class="operator-tag">OPERATOR // SPEC-OPS</div>
@@ -130,6 +132,10 @@
               <span class="action">Valorant Weapon Swap</span>
             </div>
             <div class="ctrl-card">
+              <span class="key">P</span>
+              <span class="action">Ray-Traced Photo (if enabled)</span>
+            </div>
+            <div class="ctrl-card">
               <span class="key">ESC</span>
               <span class="action">Pause / Unlock</span>
             </div>
@@ -149,6 +155,7 @@
             <span class="btn-glow"></span>
             <span class="btn-text" id="start-btn-text">LOADING ASSETS...</span>
           </button>
+          <button id="settings-btn" type="button" class="settings-btn">GRAPHICS SETTINGS</button>
           <div class="opt-note">HARDWARE ACCELERATED // THREE-MESH-BVH PHYSICS</div>
         </div>
       </div>
