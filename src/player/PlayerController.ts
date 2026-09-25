@@ -46,6 +46,8 @@ export class PlayerController {
   public facingYaw = 0;
   /** Set by the game each frame: aiming or firing turns the body to the camera. */
   public aimLock = false;
+  /** Set by the game each frame: hands busy (reloading) -> no sprint. */
+  public sprintBlocked = false;
 
   private colliderLine: THREE.Line3 = new THREE.Line3();
 
@@ -224,7 +226,8 @@ export class PlayerController {
       hasStamina &&
       this.onGround &&
       this.stance === 'stand' &&
-      !this.aimLock;
+      !this.aimLock &&
+      !this.sprintBlocked;
 
     if (this.isSprinting) {
       this.stamina = Math.max(

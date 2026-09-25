@@ -26,8 +26,32 @@ const _mGun = new THREE.Matrix4();
 const _quat = new THREE.Quaternion();
 const _scale = new THREE.Vector3();
 const _one = new THREE.Vector3(1, 1, 1);
+const _f = new THREE.Vector3();
+const _n = new THREE.Vector3();
+const _gunQ = new THREE.Quaternion();
+const _basis = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
 const RIGHT = new THREE.Vector3(1, 0, 0);
+
+/** How a hand grips: desired finger/palm directions in the gun frame, plus
+ * the hand bone's own rest-pose finger/palm basis (hand-local). */
+interface HandGrip {
+  fingers: THREE.Vector3;
+  palm: THREE.Vector3;
+  localBasis: THREE.Matrix4;
+}
+
+/** Orthonormal basis [f, n', f x n'] as matrix columns. */
+function basisFrom(
+  f: THREE.Vector3,
+  n: THREE.Vector3,
+  out: THREE.Matrix4,
+): THREE.Matrix4 {
+  const fn = _f.copy(f).normalize();
+  const nn = _n.copy(n).addScaledVector(fn, -n.dot(fn)).normalize();
+  const b = _c.crossVectors(fn, nn);
+  return out.makeBasis(fn, nn, b);
+}
 
 /** Third-person copy of a viewmodel gun (no muzzle flash/light). */
 interface TppGun {
@@ -64,6 +88,7 @@ export class PlayerCharacter {
   private static readonly POLE_RIGHT = tuple(GUN_HOLD.POLE_RIGHT);
   private static readonly POLE_LEFT = tuple(GUN_HOLD.POLE_LEFT);
   private static readonly EYE = tuple(HERO.FPV_EYE_OFFSET);
+  private grips: { right: HandGrip; left: HandGrip };
 
   constructor(
     scene: THREE.Scene,
@@ -96,9 +121,15 @@ export class PlayerCharacter {
       this.chest,
       right.upper,
       right.lower,
+      right.hand,
       left.upper,
       left.lower,
+      left.hand,
     ];
+    this.grips = {
+      right: this.handGrip('r', GUN_HOLD.RIGHT_FINGERS, GUN_HOLD.RIGHT_PALM),
+      left: this.handGrip('l', GUN_HOLD.LEFT_FINGERS, GUN_HOLD.LEFT_PALM),
+    };
 
     this.guns = rigs.map((rig) => {
       const kids = rig.root.children;
@@ -120,6 +151,39 @@ export class PlayerCharacter {
       scene.add(group);
       return { group, leftArm, rightArm, muzzle };
     });
+  }
+
+  /**
+   * Measure the hand bone's rest-pose finger + palm directions in its own
+   * frame (world-space, so the FBX's duplicated nested bones don't matter).
+   */
+  private handGrip(
+    side: 'r' | 'l',
+    fingers: readonly number[],
+    palm: readonly number[],
+  ): HandGrip {
+    this.hero.model.updateMatrixWorld(true);
+    const at = (n: string) =>
+      this.hero.bone(`${n}_${side}`).getWorldPosition(new THREE.Vector3());
+    const wrist = at('hand');
+    const f = at('middle_01').sub(wrist);
+    const thumbSide = at('index_01').sub(at('pinky_01'));
+    // Palm normal: the right hand's thumb side is its left, so the cross flips.
+    const n =
+      side === 'r'
+        ? new THREE.Vector3().crossVectors(thumbSide, f)
+        : new THREE.Vector3().crossVectors(f, thumbSide);
+    const toLocal = this.hero
+      .bone(`hand_${side}`)
+      .getWorldQuaternion(new THREE.Quaternion())
+      .invert();
+    f.applyQuaternion(toLocal);
+    n.applyQuaternion(toLocal);
+    return {
+      fingers: tuple(fingers).normalize(),
+      palm: tuple(palm).normalize(),
+      localBasis: basisFrom(f, n, new THREE.Matrix4()).clone(),
+    };
   }
 
   /** Muzzle of the third-person gun (tracers start here in TPP). */
@@ -198,7 +262,7 @@ export class PlayerCharacter {
       gun.rightArm.position.copy(rig.rightArm.position);
       gun.rightArm.rotation.copy(rig.rightArm.rotation);
       this.placeTppGun(gun, rig);
-      this.reachFor(gripOf(gun.rightArm), gripOf(gun.leftArm));
+      this.reachFor(gripOf(gun.rightArm), gripOf(gun.leftArm), gun.group);
       if (w >= 0.999) {
         // Remember the gun relative to the hand for the next special move.
         this.handToGun
@@ -212,7 +276,7 @@ export class PlayerCharacter {
       // viewmodel is its child, so update it before the IK reads the grips.
       p.camera.position.copy(_eye);
       p.camera.updateMatrixWorld(true);
-      this.reachFor(gripOf(rig.rightArm), gripOf(rig.leftArm));
+      this.reachFor(gripOf(rig.rightArm), gripOf(rig.leftArm), rig.root);
     }
   }
 
@@ -248,28 +312,65 @@ export class PlayerCharacter {
     gun.group.updateMatrixWorld(true);
   }
 
-  /** Two-hand IK onto the grips, blended by the current IK weight. */
-  private reachFor(rightGrip: THREE.Object3D, leftGrip: THREE.Object3D): void {
+  /**
+   * Two-hand IK onto the grips, blended by the current IK weight. Each wrist
+   * is placed a palm's length behind its grip and the hand is turned so the
+   * palm faces the gun.
+   */
+  private reachFor(
+    rightGrip: THREE.Object3D,
+    leftGrip: THREE.Object3D,
+    gun: THREE.Object3D,
+  ): void {
     const w = this.ikWeight;
     if (w <= 1e-3) return;
-    const targetR = rightGrip.getWorldPosition(_tR);
-    const targetL = leftGrip.getWorldPosition(_tL);
+    gun.getWorldQuaternion(_gunQ);
+    const { right, left } = this.arms;
     const poleR = _poleR
       .copy(PlayerCharacter.POLE_RIGHT)
       .applyQuaternion(_qYaw);
     const poleL = _poleL.copy(PlayerCharacter.POLE_LEFT).applyQuaternion(_qYaw);
-
-    const { right, left } = this.arms;
-    solveArm(right, targetR, poleR);
-    solveArm(left, targetL, poleL);
+    this.gripHand(
+      right,
+      this.grips.right,
+      rightGrip.getWorldPosition(_tR),
+      poleR,
+    );
+    this.gripHand(left, this.grips.left, leftGrip.getWorldPosition(_tL), poleL);
     if (w < 0.999) {
       // Blend IK result back toward the animated arms (e.g. mid-roll).
-      for (const bone of [right.upper, right.lower, left.upper, left.lower]) {
-        _q.copy(bone.quaternion); // IK result
-        bone.quaternion.copy(this.animPose.get(bone)!).slerp(_q, w);
+      for (const arm of [right, left]) {
+        for (const bone of [arm.upper, arm.lower, arm.hand]) {
+          _q.copy(bone.quaternion); // IK result
+          bone.quaternion.copy(this.animPose.get(bone)!).slerp(_q, w);
+        }
       }
       this.chest.updateMatrixWorld(true);
     }
+  }
+
+  private gripHand(
+    arm: Arm,
+    grip: HandGrip,
+    gripPos: THREE.Vector3,
+    pole: THREE.Vector3,
+  ): void {
+    const fingers = _b.copy(grip.fingers).applyQuaternion(_gunQ);
+    const palm = _eye.copy(grip.palm).applyQuaternion(_gunQ);
+    // Palm centre sits on the grip surface; the wrist is behind it.
+    const wrist = gripPos
+      .addScaledVector(palm, -GUN_HOLD.GRIP_RADIUS_M)
+      .addScaledVector(fingers, -GUN_HOLD.PALM_REACH_M);
+    solveArm(arm, wrist, pole);
+
+    // World rotation taking the hand's rest basis onto the wanted one.
+    basisFrom(fingers, palm, _basis).multiply(
+      _m.copy(grip.localBasis).transpose(),
+    );
+    _quat.setFromRotationMatrix(_basis);
+    arm.hand.parent!.getWorldQuaternion(_q).invert();
+    arm.hand.quaternion.copy(_q.multiply(_quat));
+    arm.hand.updateMatrixWorld(true);
   }
 
   private updateAnimation(): void {

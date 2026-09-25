@@ -252,6 +252,7 @@ class GameApp {
           this.input.isMouseDown(INPUT.FIRE_MOUSE_BUTTON);
         const tpp = this.player.viewMode === 'tpp';
         this.player.aimLock = aiming;
+        this.player.sprintBlocked = this.weapons.isReloading;
         this.weapons.viewmodelContainer.visible = !tpp;
         this.weapons.thirdPersonMuzzle = tpp
           ? this.playerCharacter.muzzle(this.weapons.currentWeaponIndex)

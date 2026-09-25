@@ -89,6 +89,16 @@ export const GUN_HOLD = {
   SPRINT_PITCH: -0.75,
   SPINE_PITCH_SHARE: 0.5,
   IK_BLEND_PER_S: 10,
+  // Hand pose in the gun frame (x right, y up, -z forward): where the fingers
+  // point and which way the palm faces. Right hand wraps the pistol grip
+  // (palm toward the gun's left side); left hand cups the handguard from below.
+  RIGHT_FINGERS: [-0.3, -0.3, -1] as const,
+  RIGHT_PALM: [-1, 0, 0] as const,
+  LEFT_FINGERS: [0.3, 0, -1] as const,
+  LEFT_PALM: [0.3, 1, 0] as const,
+  // Wrist sits this far behind the palm centre, which sits this far off the grip axis.
+  PALM_REACH_M: 0.07,
+  GRIP_RADIUS_M: 0.02,
   // Elbow pole directions in the aim frame.
   POLE_RIGHT: [0.8, -1, 0.3] as const,
   POLE_LEFT: [-0.8, -1, 0.2] as const,
