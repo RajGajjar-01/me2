@@ -1,11 +1,17 @@
 import * as THREE from 'three';
 
+// CPU-backed canvases: Chrome evicts GPU-backed 2D canvases under memory
+// pressure (8GB iGPU, path tracer), which blanks every texture on re-upload.
+const CPU_CANVAS: CanvasRenderingContext2DSettings = {
+  willReadFrequently: true,
+};
+
 export class TextureGenerator {
   static createTarmacTexture(size = 512): THREE.CanvasTexture {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', CPU_CANVAS)!;
 
     ctx.fillStyle = '#656b73';
     ctx.fillRect(0, 0, size, size);
@@ -50,7 +56,7 @@ export class TextureGenerator {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', CPU_CANVAS)!;
 
     ctx.fillStyle = '#808080';
     ctx.fillRect(0, 0, size, size);
@@ -79,7 +85,7 @@ export class TextureGenerator {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', CPU_CANVAS)!;
 
     ctx.fillStyle = colorHex;
     ctx.fillRect(0, 0, size, size);
@@ -121,7 +127,7 @@ export class TextureGenerator {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', CPU_CANVAS)!;
 
     ctx.fillStyle = '#8b6942';
     ctx.fillRect(0, 0, size, size);
@@ -170,7 +176,7 @@ export class TextureGenerator {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', CPU_CANVAS)!;
 
     ctx.fillStyle = '#827357';
     ctx.fillRect(0, 0, size, size);
@@ -202,7 +208,7 @@ export class TextureGenerator {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', CPU_CANVAS)!;
     const cx = size / 2;
     const cy = size / 2;
 
@@ -275,7 +281,7 @@ export class TextureGenerator {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = size;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', CPU_CANVAS)!;
     const cx = size / 2;
     const cy = size / 2;
 
@@ -299,7 +305,7 @@ export class TextureGenerator {
     const canvas = document.createElement('canvas');
     canvas.width = size;
     canvas.height = 32;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvas.getContext('2d', CPU_CANVAS)!;
 
     const grad = ctx.createLinearGradient(0, 0, size, 0);
     grad.addColorStop(0.0, 'rgba(255, 100, 10, 0.0)');
