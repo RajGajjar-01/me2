@@ -11,7 +11,6 @@ export const HERO_CLIPS = [
   'Jump_Land',
   'Roll',
   'Swim_Fwd_Loop',
-  'Hit_Chest',
   'Hit_Head',
   'Death01',
   'Slide_Start',
@@ -26,7 +25,6 @@ export type HeroClip = (typeof HERO_CLIPS)[number];
 export const HERO_ONE_SHOTS: readonly HeroClip[] = [
   'Jump_Land',
   'Roll',
-  'Hit_Chest',
   'Hit_Head',
   'Death01',
   'Slide_Start',

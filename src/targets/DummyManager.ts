@@ -181,7 +181,7 @@ export class DummyManager {
         this.sound.playBodyImpact();
       }
     } else {
-      dummy.hero?.playOnce(isHeadshot ? 'Hit_Head' : 'Hit_Chest');
+      dummy.hero?.playOnce('Hit_Head');
       this.sound.playBodyImpact();
     }
 
@@ -218,8 +218,7 @@ export class DummyManager {
         }
       } else if (hero) {
         // Hit reactions are one-shots; resume the base loop once they end.
-        const reacting =
-          hero.isRunning('Hit_Chest') || hero.isRunning('Hit_Head');
+        const reacting = hero.isRunning('Hit_Head');
         if (!reacting) {
           const base = hero.play(patrols ? 'Walk_Loop' : 'Idle_Loop');
           if (patrols) base.timeScale = HERO.ENEMY_WALK_SPEED_SCALE;
