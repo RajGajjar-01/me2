@@ -73,7 +73,6 @@ async function loadAssets(): Promise<HeroAssets> {
     }),
   };
 
-  let eyes: THREE.Object3D | null = null;
   obj.traverse((o) => {
     const mesh = o as THREE.Mesh;
     if (!mesh.isMesh) return;
@@ -81,7 +80,6 @@ async function loadAssets(): Promise<HeroAssets> {
       Array.isArray(mesh.material) ? mesh.material[0] : mesh.material
     ).name;
     mesh.material = materials[name] ?? materials.MI_Superhero_Male;
-    if (name === 'MI_Eyes') eyes = mesh;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     // Skinned bounds don't follow the animation; never cull the body.
@@ -94,13 +92,15 @@ async function loadAssets(): Promise<HeroAssets> {
   obj.position.y = -box.min.y + HERO.FOOT_LIFT_M;
   const template = new THREE.Group();
   template.add(obj);
-  if (eyes) {
-    const eyeBox = new THREE.Box3().setFromObject(eyes);
-    const eyeZ = (eyeBox.min.z + eyeBox.max.z) / 2;
-    // Flip the wrapper, not obj: obj already carries the FBX Z-up -> Y-up
-    // X rotation, so a Y turn on obj spins it upside down.
-    if (eyeZ > (box.min.z + box.max.z) / 2) template.rotation.y = Math.PI;
-  }
+  // Facing from bones only (toes point forward), not mesh bounds: skinned
+  // bounds depend on how the skeleton was evaluated and can disagree.
+  // Flip the wrapper, not obj: obj already carries the FBX Z-up -> Y-up X
+  // rotation, so a Y turn on obj spins it upside down.
+  const at = (n: string) =>
+    obj.getObjectByName(n)?.getWorldPosition(new THREE.Vector3());
+  const foot = at('foot_l');
+  const toe = at('ball_l');
+  if (foot && toe && toe.z > foot.z) template.rotation.y = Math.PI;
 
   // UAL clips share UE bone names with the hero, so tracks bind by name.
   // Keep bone rotations + pelvis position (rescaled to this rig's units).

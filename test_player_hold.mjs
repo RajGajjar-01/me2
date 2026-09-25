@@ -169,6 +169,50 @@ function run(view, weapon, aiming) {
   assert.ok(toes.z < -0.8, 'hero must face -Z at facingYaw 0');
 }
 
+// Full loop: real controller update in third-person -> camera must sit
+// behind the body (we see the back, not the face).
+{
+  const input = {
+    consumeMouseDelta: () => ({ x: 0, y: 0 }),
+    isKeyPressed: () => false,
+    isKeyDown: () => false,
+    isAnyKeyDown: () => false,
+  };
+  const bvh = { shapecast() {}, raycastFirst: () => null };
+  const ctl = new PlayerController(75, 16 / 9, input, bvh);
+  ctl.capsulePosition.set(0, 0.4, 0);
+  ctl.viewMode = 'tpp';
+  scene.add(ctl.camera);
+  const pc2 = new PlayerCharacter(scene, ctl, await loadHeroAssets(), rigs);
+  for (const yaw of [0, 1.2, -2.5]) {
+    ctl.yaw = yaw;
+    for (let f = 0; f < 90; f++) {
+      ctl.update(1 / 60);
+      pc2.update(1 / 60, 0);
+    }
+    scene.updateMatrixWorld(true);
+    const chest = pc2.hero
+      .bone('spine_03')
+      .getWorldPosition(new THREE.Vector3());
+    const toCam = ctl.camera.position.clone().sub(chest).setY(0).normalize();
+    const w = (n) => pc2.hero.bone(n).getWorldPosition(new THREE.Vector3());
+    const toes = w('ball_l').sub(w('foot_l')).setY(0).normalize();
+    const camFwd = new THREE.Vector3(0, 0, -1)
+      .applyQuaternion(ctl.camera.quaternion)
+      .setY(0)
+      .normalize();
+    console.log(
+      `tpp yaw ${yaw}: facingYaw ${ctl.facingYaw.toFixed(2)}  toes.camFwd ${toes.dot(camFwd).toFixed(2)}  toes.toCam ${toes.dot(toCam).toFixed(2)}`,
+    );
+    assert.ok(
+      toes.dot(camFwd) > 0.8,
+      'body must face the way the camera looks',
+    );
+    assert.ok(toes.dot(toCam) < -0.5, 'camera must be behind the body');
+  }
+  scene.remove(pc2.hero.root);
+}
+
 const TOLERANCE_M = 0.03;
 for (const view of ['fpv', 'tpp']) {
   for (let w = 0; w < WEAPON_DEFS.length; w++) {

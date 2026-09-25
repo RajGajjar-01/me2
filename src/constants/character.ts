@@ -91,7 +91,8 @@ export const TPP_CAMERA = {
 // The gun is posed from the hero's eyes exactly like the first-person
 // viewmodel (WEAPON_DEFS offsets), so both views hold it identically.
 export const GUN_HOLD = {
-  // Third-person sprint carries the gun low (rad).
+  // Third-person carry pitch (rad) when not aiming/firing; sprint lower.
+  LOW_READY_PITCH: -0.5,
   SPRINT_PITCH: -0.75,
   SPINE_PITCH_SHARE: 0.5,
   IK_BLEND_PER_S: 10,

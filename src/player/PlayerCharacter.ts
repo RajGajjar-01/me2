@@ -237,8 +237,14 @@ export class PlayerCharacter {
     this.ikWeight += (holdsGun - this.ikWeight) * k;
     const w = this.ikWeight;
 
-    // Gun follows the crosshair; only a third-person sprint carries it low.
-    const pitch = tpp && p.isSprinting ? GUN_HOLD.SPRINT_PITCH : p.pitch;
+    // Third-person low-ready (PUBG): gun angled down across the body; it
+    // comes up to the crosshair only while aiming or firing.
+    const pitch =
+      !tpp || p.aimLock
+        ? p.pitch
+        : p.isSprinting
+          ? GUN_HOLD.SPRINT_PITCH
+          : GUN_HOLD.LOW_READY_PITCH;
     _qYaw.setFromAxisAngle(UP, p.facingYaw);
     _euler.set(pitch, p.facingYaw, 0);
     _qAim.setFromEuler(_euler);

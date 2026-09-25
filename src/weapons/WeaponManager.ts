@@ -43,7 +43,7 @@ export class WeaponManager {
   public viewmodelContainer: THREE.Group = new THREE.Group();
   public currentWeaponIndex = 0;
   public isAiming = false;
-  /** Set by the game each frame: gun held up at the shoulder (prone, third-person). */
+  /** Set by the game each frame: gun held up at the shoulder (prone). */
   public raisedHold = false;
   public isReloading = false;
   public isSwapping = false;
@@ -230,8 +230,7 @@ export class WeaponManager {
       this.input.isMouseDown(INPUT.ADS_MOUSE_BUTTON) &&
       !this.isReloading &&
       !this.isSwapping;
-    // Raised hold: prone (a hip carry would go through the ground) and
-    // third-person (PUBG-style shouldered rifle aimed at the crosshair).
+    // Raised hold while prone: a hip carry would go through the ground.
     this.targetOffset.copy(
       this.isAiming || this.raisedHold ? weapon.adsOffset : weapon.idleOffset,
     );
