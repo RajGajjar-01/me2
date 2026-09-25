@@ -1,0 +1,37 @@
+<!-- Open directly in a browser. No build, no deps. -->
+<canvas id="c" width="400" height="200" style="border:1px solid #888"></canvas>
+<script>
+const ctx = document.getElementById('c').getContext('2d');
+
+// THE WORLD — all game state lives here
+const ball = { x: 20, y: 100, vx: 120, vy: 90, r: 10 }; // v = pixels per SECOND
+
+let last = performance.now();
+function frame(now) {
+  console.log(now);
+  requestAnimationFrame(frame);                  // 1. queue next frame
+
+  const dt = Math.min((now - last) / 1000, 0.05); // 2. seconds since last frame
+  last = now;
+
+  update(dt);                                     // 3. advance the world
+  draw();                                         // 4. paint it
+}
+
+function update(dt) {
+  ball.x += ball.vx * dt;                         // "per second" × seconds elapsed
+  ball.y += ball.vy * dt;
+
+  if (ball.x < ball.r || ball.x > 400 - ball.r) ball.vx *= -1;
+  if (ball.y < ball.r || ball.y > 200 - ball.r) ball.vy *= -1;
+}
+
+function draw() {
+  ctx.clearRect(0, 0, 400, 200);                  // wipe last frame
+  ctx.beginPath();
+  ctx.arc(ball.x, ball.y, ball.r, 0, Math.PI * 2);
+  ctx.fill();
+}
+
+requestAnimationFrame(frame);                     // kick it off
+</script>
