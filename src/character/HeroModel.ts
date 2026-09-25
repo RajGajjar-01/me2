@@ -103,7 +103,9 @@ async function loadAssets(): Promise<HeroAssets> {
   if (eyes) {
     const eyeBox = new THREE.Box3().setFromObject(eyes);
     const eyeZ = (eyeBox.min.z + eyeBox.max.z) / 2;
-    if (eyeZ > (box.min.z + box.max.z) / 2) obj.rotation.y = Math.PI;
+    // Flip the wrapper, not obj: obj already carries the FBX Z-up -> Y-up
+    // X rotation, so a Y turn on obj spins it upside down.
+    if (eyeZ > (box.min.z + box.max.z) / 2) template.rotation.y = Math.PI;
   }
 
   // UAL clips share UE bone names with the hero, so tracks bind by name.
