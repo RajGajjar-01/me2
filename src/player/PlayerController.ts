@@ -26,6 +26,7 @@ export class PlayerController {
   public stamina: number = PLAYER.MAX_STAMINA;
   public maxStamina: number = PLAYER.MAX_STAMINA;
   public isSprinting = false;
+  private exhausted = false;
 
   public radius: number = PLAYER.CAPSULE_RADIUS;
   public height: number = STANCES.stand.height;
@@ -219,7 +220,10 @@ export class PlayerController {
     this.eyeOffset += (target.eyeOffset - this.eyeOffset) * stanceK;
 
     const wantsSprint = this.input.isAnyKeyDown(...INPUT.SPRINT);
-    const hasStamina = this.stamina > PLAYER.STAMINA_MIN_TO_SPRINT;
+    if (this.stamina <= PLAYER.STAMINA_MIN_TO_SPRINT) this.exhausted = true;
+    else if (this.stamina >= PLAYER.STAMINA_RESUME_SPRINT)
+      this.exhausted = false;
+    const hasStamina = !this.exhausted;
     this.isSprinting =
       this.move === 'normal' &&
       wantsSprint &&

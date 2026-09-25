@@ -32,6 +32,9 @@ export const PLAYER = {
   GRAVITY: -20.0,
   MAX_STAMINA: 100,
   STAMINA_MIN_TO_SPRINT: 5,
+  // After running out, sprint stays off until stamina recovers this far
+  // (otherwise sprint flickers on/off at the threshold).
+  STAMINA_RESUME_SPRINT: 25,
   STAMINA_DRAIN_PER_S: 26,
   STAMINA_REGEN_PER_S: 20,
   DAMPING_GROUND: 12.0,
