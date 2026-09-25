@@ -36,15 +36,29 @@ const _f = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _gunQ = new THREE.Quaternion();
 const _basis = new THREE.Matrix4();
+const _fa = new THREE.Vector3();
+const _fb = new THREE.Vector3();
+const _axis = new THREE.Vector3();
+const _fq = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
 const RIGHT = new THREE.Vector3(1, 0, 0);
 
 /** How a hand grips: desired finger/palm directions in the gun frame, plus
  * the hand bone's own rest-pose finger/palm basis (hand-local). */
+const FINGERS = ['index', 'middle', 'ring', 'pinky', 'thumb'] as const;
+
 interface HandGrip {
   fingers: THREE.Vector3;
   palm: THREE.Vector3;
   localBasis: THREE.Matrix4;
+  side: 'r' | 'l';
+  /** Per finger: joints 01..03 plus the tip, and each joint's rest rotation. */
+  fingers3: {
+    name: (typeof FINGERS)[number];
+    joints: THREE.Object3D[];
+    tip: THREE.Object3D;
+    rest: THREE.Quaternion[];
+  }[];
 }
 
 /** Orthonormal basis [f, n', f x n'] as matrix columns. */
@@ -161,6 +175,11 @@ export class PlayerCharacter {
       right: this.handGrip('r', GUN_HOLD.RIGHT_FINGERS, GUN_HOLD.RIGHT_PALM),
       left: this.handGrip('l', GUN_HOLD.LEFT_FINGERS, GUN_HOLD.LEFT_PALM),
     };
+    // Finger joints too: our grip must not stick when the clip takes back
+    // over (the mixer only rewrites values that changed).
+    for (const g of [this.grips.right, this.grips.left]) {
+      for (const f of g.fingers3) this.edited.push(...f.joints);
+    }
 
     this.guns = rigs.map((rig, i) => {
       const kids = rig.root.children;
@@ -218,10 +237,23 @@ export class PlayerCharacter {
       .invert();
     f.applyQuaternion(toLocal);
     n.applyQuaternion(toLocal);
+    const fingers3 = FINGERS.map((name) => {
+      const joints = [1, 2, 3].map((j) =>
+        this.hero.bone(`${name}_0${j}_${side}`),
+      );
+      return {
+        name,
+        joints,
+        tip: this.hero.bone(`${name}_04_leaf_${side}`),
+        rest: joints.map((b) => b.quaternion.clone()),
+      };
+    });
     return {
       fingers: tuple(fingers).normalize(),
       palm: tuple(palm).normalize(),
       localBasis: basisFrom(f, n, new THREE.Matrix4()).clone(),
+      side,
+      fingers3,
     };
   }
 
@@ -471,6 +503,28 @@ export class PlayerCharacter {
     arm.hand.parent!.getWorldQuaternion(_q).invert();
     arm.hand.quaternion.copy(_q.multiply(_quat));
     arm.hand.updateMatrixWorld(true);
+    this.curlFingers(grip, palm);
+  }
+
+  /**
+   * Wrap the fingers around the gun: start from the straight rest pose and
+   * curl each joint toward the palm (axis = finger x palm normal).
+   */
+  private curlFingers(grip: HandGrip, palm: THREE.Vector3): void {
+    const curls = GUN_HOLD.FINGER_CURL[grip.side];
+    for (const f of grip.fingers3) {
+      f.joints.forEach((j, i) => {
+        j.quaternion.copy(f.rest[i]);
+      });
+      f.joints[0].updateMatrixWorld(true);
+      f.joints.forEach((joint, i) => {
+        const next = f.joints[i + 1] ?? f.tip;
+        joint.getWorldPosition(_fa);
+        next.getWorldPosition(_fb).sub(_fa);
+        _axis.crossVectors(_fb, palm).normalize();
+        rotateWorld(joint, _fq.setFromAxisAngle(_axis, curls[f.name][i]));
+      });
+    }
   }
 
   /**

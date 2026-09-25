@@ -121,9 +121,30 @@ export const GUN_HOLD = {
   RIGHT_PALM: [-1, 0, 0] as const,
   LEFT_FINGERS: [0.3, 0, -1] as const,
   LEFT_PALM: [0.3, 1, 0] as const,
-  // Wrist sits this far behind the palm centre, which sits this far off the grip axis.
-  PALM_REACH_M: 0.07,
+  // Wrist sits this far behind the grip (the hero's knuckles are 11.7 cm
+  // from the wrist, so the grip lands at the base of the fingers), and the
+  // palm this far off the grip axis.
+  PALM_REACH_M: 0.11,
   GRIP_RADIUS_M: 0.02,
+  // Finger curl per joint (01, 02, 03; rad) from the straight rest pose,
+  // bending toward the palm so the hand wraps the gun instead of a fist.
+  // Right: index rests straight along the trigger guard.
+  FINGER_CURL: {
+    r: {
+      index: [0.15, 0.2, 0.1],
+      middle: [1.0, 1.2, 0.7],
+      ring: [1.05, 1.2, 0.7],
+      pinky: [1.1, 1.2, 0.7],
+      thumb: [0.3, 0.5, 0.3],
+    },
+    l: {
+      index: [0.8, 1.0, 0.6],
+      middle: [0.85, 1.0, 0.6],
+      ring: [0.9, 1.0, 0.6],
+      pinky: [0.95, 1.0, 0.6],
+      thumb: [0.3, 0.4, 0.3],
+    },
+  } as const,
   // Elbow pole directions in the aim frame.
   POLE_RIGHT: [0.8, -1, 0.3] as const,
   POLE_LEFT: [-0.8, -1, 0.2] as const,

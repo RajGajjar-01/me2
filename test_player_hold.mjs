@@ -145,6 +145,16 @@ function run(view, weapon, aiming) {
   ).getWorldQuaternion(new THREE.Quaternion());
   const R = measureHand('r', grips[0], gunQ);
   const L = measureHand('l', grips[1], gunQ);
+  // Fingers wrap the gun (not a fist floating beside it).
+  const gripR = grips[0].getWorldPosition(new THREE.Vector3());
+  const gripL = grips[1].getWorldPosition(new THREE.Vector3());
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(gunQ);
+  const tip = (n) => bonePos(n);
+  const fingers = {
+    midR: tip('middle_04_leaf_r').distanceTo(gripR),
+    midL: tip('middle_04_leaf_l').distanceTo(gripL),
+    trigger: tip('index_04_leaf_r').sub(tip('middle_04_leaf_r')).dot(fwd),
+  };
   const chest = pc.hero.bone('spine_03').getWorldPosition(new THREE.Vector3());
   const muzzle = (
     view === 'fpv' ? rig.muzzleFlash : pc.guns[weapon].muzzle
@@ -154,7 +164,10 @@ function run(view, weapon, aiming) {
   console.log(
     `${view} ${WEAPON_DEFS[weapon].name.padEnd(15)} ${aiming ? 'ADS' : 'hip'}  wrist err R ${(R.err * 100).toFixed(1)}cm L ${(L.err * 100).toFixed(1)}cm  fingers R ${R.fingerDot.toFixed(2)} L ${L.fingerDot.toFixed(2)}  thumb R ${R.thumbDot.toFixed(2)} L ${L.thumbDot.toFixed(2)}  muzzle ${ahead.toFixed(2)}m`,
   );
-  return { R, L, ahead };
+  console.log(
+    `   fingers: right mid tip ${(fingers.midR * 100).toFixed(0)}cm from grip, left ${(fingers.midL * 100).toFixed(0)}cm, index ahead of middle ${(fingers.trigger * 100).toFixed(0)}cm`,
+  );
+  return { R, L, ahead, fingers };
 }
 
 // Facing: at facingYaw 0 the body must look down -Z (same as the camera),
@@ -336,6 +349,12 @@ for (const view of ['fpv', 'tpp']) {
     // long guns (pistol: erangel clips, tested below)
     for (const aiming of [false, true]) {
       const r = run(view, w, aiming);
+      assert.ok(r.fingers.midR < 0.08, 'right fingers wrap the grip');
+      assert.ok(r.fingers.midL < 0.09, 'left fingers wrap the handguard');
+      assert.ok(
+        r.fingers.trigger > 0.02,
+        'right index rests forward on the trigger',
+      );
       for (const h of [r.R, r.L]) {
         assert.ok(h.err < TOLERANCE_M, 'wrist must reach its grip target');
         assert.ok(
