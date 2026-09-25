@@ -9,6 +9,7 @@
 | smg.mp3 | PPSh-41, PanderMusubi/sound-effects-library-weapons (Still North Media) — https://github.com/PanderMusubi/sound-effects-library-weapons. **Unused** — not in `src/assets.ts`, so never loaded or played; kept for a future SMG | CC0 |
 | reload.mp3 | "Gun Reload Sounds" (assaultriflereload1.wav) — https://opengameart.org/content/gun-reload-sounds | CC0 |
 | footstep.mp3 | "concrete_footstep_3" by nx31nx13 — https://freesound.org/s/852380/ (converted to mono mp3 and trimmed) | CC-BY 4.0 — **attribution to nx31nx13 required** |
+| shell_drop.mp3 | Freesound.org sound ID 72619 ("bullet shells") — https://freesound.org/s/72619/ | Unverified — check freesound.org/s/72619/ for exact author/license before shipping commercially |
 
 # Model credits
 

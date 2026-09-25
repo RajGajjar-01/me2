@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { EFFECTS, MUZZLE_FLASH } from '../constants/effects';
 import { TextureGenerator } from '../utils/TextureGenerator';
 
 interface PooledTracer {
@@ -29,23 +30,28 @@ interface PooledShell {
   rotVelocity: THREE.Vector3;
   life: number;
   active: boolean;
+  landed: boolean;
 }
 
 export class BulletTracerManager {
   private tracerPool: PooledTracer[] = [];
   private tracerIndex = 0;
-  private readonly MAX_TRACERS = 24;
+  private readonly MAX_TRACERS = EFFECTS.MAX_TRACERS;
 
   private smokePool: PooledSmoke[] = [];
   private smokeIndex = 0;
-  private readonly MAX_SMOKE = 32;
+  private readonly MAX_SMOKE = EFFECTS.MAX_SMOKE;
 
   private shellPool: PooledShell[] = [];
   private shellIndex = 0;
-  private readonly MAX_SHELLS = 30;
+  private readonly MAX_SHELLS = EFFECTS.MAX_SHELLS;
 
-  private tracerTex = TextureGenerator.createTracerTexture(256);
-  private smokeTex = TextureGenerator.createMuzzleSmokeTexture(128);
+  private tracerTex = TextureGenerator.createTracerTexture(
+    MUZZLE_FLASH.TRACER_TEXTURE,
+  );
+  private smokeTex = TextureGenerator.createMuzzleSmokeTexture(
+    MUZZLE_FLASH.SMOKE_TEXTURE,
+  );
 
   private tracerMat = new THREE.MeshBasicMaterial({
     map: this.tracerTex,
@@ -69,7 +75,10 @@ export class BulletTracerManager {
   private readonly _forward = new THREE.Vector3(0, 0, -1);
   private readonly _ejectDir = new THREE.Vector3();
 
-  constructor(private scene: THREE.Scene) {
+  constructor(
+    private scene: THREE.Scene,
+    private onShellLand?: () => void,
+  ) {
     this.casingGeo.rotateZ(Math.PI / 2);
     this.tracerBeamGeo.rotateY(Math.PI / 2);
 
@@ -95,7 +104,7 @@ export class BulletTracerManager {
         current: new THREE.Vector3(),
         dir: new THREE.Vector3(),
         life: 0,
-        speed: 320,
+        speed: EFFECTS.TRACER_SPEED,
         totalDist: 0,
         active: false,
       });
@@ -107,7 +116,7 @@ export class BulletTracerManager {
       const mat = new THREE.MeshBasicMaterial({
         map: this.smokeTex,
         transparent: true,
-        opacity: 0.5,
+        opacity: EFFECTS.SMOKE_OPACITY,
         depthWrite: false,
         side: THREE.DoubleSide,
       });
@@ -119,9 +128,9 @@ export class BulletTracerManager {
         mesh,
         material: mat,
         velocity: new THREE.Vector3(),
-        scale: 0.08,
+        scale: EFFECTS.SMOKE_SCALE,
         life: 0,
-        maxLife: 0.28,
+        maxLife: EFFECTS.SMOKE_LIFE_S,
         active: false,
       });
     }
@@ -139,6 +148,7 @@ export class BulletTracerManager {
         rotVelocity: new THREE.Vector3(),
         life: 0,
         active: false,
+        landed: false,
       });
     }
   }
@@ -153,15 +163,15 @@ export class BulletTracerManager {
 
     t.dir.subVectors(to, from);
     t.totalDist = t.dir.length();
-    if (t.totalDist < 0.1) return;
+    if (t.totalDist < EFFECTS.TRACER_MIN_DIST) return;
     t.dir.normalize();
 
     t.mesh.position.copy(from);
     t.mesh.quaternion.setFromUnitVectors(this._forward, t.dir);
     t.mesh.visible = true;
 
-    t.life = 0.35;
-    t.speed = 320;
+    t.life = EFFECTS.TRACER_LIFE_S;
+    t.speed = EFFECTS.TRACER_SPEED;
     t.active = true;
   }
 
@@ -171,19 +181,23 @@ export class BulletTracerManager {
 
     s.mesh.position.copy(pos);
     s.mesh.rotation.copy(cameraRot);
-    s.scale = 0.08;
-    s.mesh.scale.set(0.08, 0.08, 0.08);
-    s.material.opacity = 0.5;
+    s.scale = EFFECTS.SMOKE_SCALE;
+    s.mesh.scale.set(
+      EFFECTS.SMOKE_SCALE,
+      EFFECTS.SMOKE_SCALE,
+      EFFECTS.SMOKE_SCALE,
+    );
+    s.material.opacity = EFFECTS.SMOKE_OPACITY;
     s.mesh.visible = true;
 
     s.velocity.set(
-      (Math.random() - 0.5) * 0.3,
-      0.35 + Math.random() * 0.25,
-      (Math.random() - 0.5) * 0.3,
+      (Math.random() - 0.5) * EFFECTS.SMOKE_SPREAD,
+      EFFECTS.SMOKE_RISE_BASE + Math.random() * EFFECTS.SMOKE_RISE_RANDOM,
+      (Math.random() - 0.5) * EFFECTS.SMOKE_SPREAD,
     );
 
-    s.life = 0.28;
-    s.maxLife = 0.28;
+    s.life = EFFECTS.SMOKE_LIFE_S;
+    s.maxLife = EFFECTS.SMOKE_LIFE_S;
     s.active = true;
   }
 
@@ -211,6 +225,7 @@ export class BulletTracerManager {
 
     s.life = 0.85;
     s.active = true;
+    s.landed = false;
   }
 
   public getActiveCount(): { tracers: number; smoke: number; shells: number } {
@@ -280,6 +295,11 @@ export class BulletTracerManager {
         s.velocity.x *= 0.6;
         s.velocity.z *= 0.6;
         s.rotVelocity.multiplyScalar(0.5);
+
+        if (!s.landed) {
+          s.landed = true;
+          this.onShellLand?.();
+        }
       }
 
       if (s.life <= 0) {

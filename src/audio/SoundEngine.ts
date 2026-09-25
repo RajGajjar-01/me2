@@ -1,3 +1,5 @@
+import { AUDIO, REVERB_REFLECTIONS } from '../constants/audio';
+
 export class SoundEngine {
   private ctx: AudioContext | null = null;
   private isMuted = false;
@@ -9,28 +11,20 @@ export class SoundEngine {
     { src: AudioBufferSourceNode; gain: GainNode }[]
   > = new Map();
 
-  private static readonly MAX_VOICES = 8;
+  private static readonly MAX_VOICES = AUDIO.MAX_VOICES;
 
   private reverbBus: GainNode | null = null;
 
-  private static readonly REVERB_SECONDS = 2.2;
+  private static readonly REVERB_SECONDS = AUDIO.REVERB_SECONDS;
 
-  private static readonly REVERB_WET = 0.38;
+  private static readonly REVERB_WET = AUDIO.REVERB_WET;
 
-  private static readonly REVERB_PREDELAY = 0.016;
+  private static readonly REVERB_PREDELAY = AUDIO.REVERB_PREDELAY;
 
-  private static readonly REVERB_DECAY_EXP = 2.3;
+  private static readonly REVERB_DECAY_EXP = AUDIO.REVERB_DECAY_EXP;
 
   // [ms, amplitude] — first four are the compound, last three distant terrain.
-  private static readonly REVERB_REFLECTIONS = [
-    [19, 0.62],
-    [37, 0.45],
-    [58, 0.3],
-    [97, 0.2],
-    [168, 0.15],
-    [247, 0.1],
-    [352, 0.062],
-  ] as const;
+  private static readonly REVERB_REFLECTIONS = REVERB_REFLECTIONS;
 
   constructor() {}
 
@@ -67,6 +61,7 @@ export class SoundEngine {
       levelJitter?: number;
       duckOlder?: number;
       reverb?: number;
+      maxDuration?: number;
     } = {},
   ): boolean {
     const buf = this.samples.get(name);
@@ -79,6 +74,7 @@ export class SoundEngine {
       levelJitter = 0.0,
       duckOlder,
       reverb = 0,
+      maxDuration,
     } = opts;
 
     const ctx = this.initContext();
@@ -127,6 +123,13 @@ export class SoundEngine {
     }
 
     src.start(now);
+
+    if (maxDuration !== undefined) {
+      const fadeStart = now + Math.max(0, maxDuration - 0.02);
+      g.gain.setValueAtTime(g.gain.value, fadeStart);
+      g.gain.linearRampToValueAtTime(0.0001, fadeStart + 0.02);
+      src.stop(fadeStart + 0.02);
+    }
 
     const voice = { src, gain: g };
     active.push(voice);
@@ -591,6 +594,16 @@ export class SoundEngine {
     filter.connect(g);
     g.connect(ctx.destination);
     src.start(now);
+  }
+
+  public playShellDrop(): void {
+    if (this.isMuted) return;
+    this.playSample('shellDrop', {
+      gain: 0.3 + Math.random() * 0.15,
+      rate: 0.9 + Math.random() * 0.2,
+      detune: 0.1,
+      maxDuration: AUDIO.SHELL_DROP_MAX_DURATION_S,
+    });
   }
 
   public playBoltRack(): void {
