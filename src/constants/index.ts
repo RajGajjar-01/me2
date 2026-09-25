@@ -3,6 +3,7 @@
 // over deep imports — keeps moves/renames safe.
 export * from './assets';
 export * from './audio';
+export * from './character';
 export * from './effects';
 export * from './graphics';
 export * from './input';

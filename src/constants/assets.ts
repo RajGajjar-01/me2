@@ -4,7 +4,6 @@ export const MODELS = {
   ak47: '/models/ak47.glb',
   pistol: '/models/pistol.glb',
   shotgun: '/models/shotgun.glb',
-  character: '/models/character.glb',
 } as const;
 
 export const SOUNDS = {

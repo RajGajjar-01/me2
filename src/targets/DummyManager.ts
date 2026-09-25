@@ -1,15 +1,13 @@
 import * as THREE from 'three';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { SoundEngine } from '../audio/SoundEngine';
-import { MODELS } from '../constants/assets';
+import { Hero, loadHeroAssets } from '../character/HeroModel';
+import { HERO } from '../constants/character';
 import { TARGETS } from '../constants/world';
 
 export interface DummyEntity {
   id: number;
   root: THREE.Group;
-  modelGroup: THREE.Group;
+  hero: Hero | null;
   headHitbox: THREE.Mesh;
   bodyHitbox: THREE.Mesh;
   legsHitbox: THREE.Mesh;
@@ -24,39 +22,20 @@ export interface DummyEntity {
   maxHealth: number;
   isDead: boolean;
   respawnTimer: number;
-
-  flinchAngle: number;
-  flinchVelocity: number;
-  collapseProgress: number;
 }
+
+// Enemies face the player spawn (+Z); patrollers face their walk direction.
+const FACE_PLAYER_YAW = Math.PI;
+const FACE_RIGHT_YAW = -Math.PI / 2;
+const FACE_LEFT_YAW = Math.PI / 2;
 
 export class DummyManager {
   public dummies: DummyEntity[] = [];
   public hitboxMeshes: THREE.Mesh[] = [];
 
-  private mixers: Map<number, THREE.AnimationMixer> = new Map();
-
   private hitMat = new THREE.MeshBasicMaterial({
     visible: false,
     side: THREE.DoubleSide,
-  });
-
-  private fallbackDummyMat = new THREE.MeshStandardMaterial({
-    color: 0x3b4252,
-    roughness: 0.6,
-    metalness: 0.2,
-  });
-
-  private vestMat = new THREE.MeshStandardMaterial({
-    color: 0x2e3440,
-    roughness: 0.4,
-    metalness: 0.3,
-  });
-
-  private helmetMat = new THREE.MeshStandardMaterial({
-    color: 0x434c5e,
-    roughness: 0.3,
-    metalness: 0.5,
   });
 
   public onDummyHit?: (
@@ -107,11 +86,6 @@ export class DummyManager {
     const root = new THREE.Group();
     root.position.copy(pos);
 
-    const modelGroup = new THREE.Group();
-    root.add(modelGroup);
-
-    this.buildProceduralDummy(modelGroup);
-
     const headGeo = new THREE.SphereGeometry(0.18, 8, 8);
     const headHitbox = new THREE.Mesh(headGeo, this.hitMat);
     headHitbox.position.set(0, 1.62, 0);
@@ -133,10 +107,10 @@ export class DummyManager {
     this.hitboxMeshes.push(headHitbox, bodyHitbox, legsHitbox);
     this.scene.add(root);
 
-    const dummy: DummyEntity = {
+    this.dummies.push({
       id,
       root,
-      modelGroup,
+      hero: null,
       headHitbox,
       bodyHitbox,
       legsHitbox,
@@ -149,134 +123,24 @@ export class DummyManager {
       maxHealth: TARGETS.DUMMY_MAX_HEALTH,
       isDead: false,
       respawnTimer: 0,
-      flinchAngle: 0,
-      flinchVelocity: 0,
-      collapseProgress: 0,
-    };
-
-    this.dummies.push(dummy);
-  }
-
-  private buildProceduralDummy(group: THREE.Group): void {
-    const torso = new THREE.Mesh(
-      new THREE.BoxGeometry(0.44, 0.58, 0.24),
-      this.fallbackDummyMat,
-    );
-    torso.position.set(0, 1.15, 0);
-    torso.castShadow = true;
-    group.add(torso);
-
-    const vest = new THREE.Mesh(
-      new THREE.BoxGeometry(0.46, 0.44, 0.28),
-      this.vestMat,
-    );
-    vest.position.set(0, 1.2, 0);
-    vest.castShadow = true;
-    group.add(vest);
-
-    const head = new THREE.Mesh(
-      new THREE.SphereGeometry(0.14, 12, 12),
-      this.fallbackDummyMat,
-    );
-    head.position.set(0, 1.62, 0);
-    head.castShadow = true;
-    group.add(head);
-
-    const helmet = new THREE.Mesh(
-      new THREE.SphereGeometry(0.155, 12, 10, 0, Math.PI * 2, 0, Math.PI / 1.7),
-      this.helmetMat,
-    );
-    helmet.position.set(0, 1.66, 0);
-    helmet.castShadow = true;
-    group.add(helmet);
-
-    const goggles = new THREE.Mesh(
-      new THREE.BoxGeometry(0.18, 0.05, 0.06),
-      new THREE.MeshStandardMaterial({
-        color: 0x111111,
-        roughness: 0.1,
-        metalness: 0.9,
-      }),
-    );
-    goggles.position.set(0, 1.63, 0.12);
-    group.add(goggles);
-
-    const lArm = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.05, 0.55, 8),
-      this.fallbackDummyMat,
-    );
-    lArm.position.set(-0.28, 1.12, 0);
-    lArm.castShadow = true;
-    group.add(lArm);
-
-    const rArm = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.06, 0.05, 0.55, 8),
-      this.fallbackDummyMat,
-    );
-    rArm.position.set(0.28, 1.12, 0);
-    rArm.castShadow = true;
-    group.add(rArm);
-
-    const lLeg = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.065, 0.75, 8),
-      this.fallbackDummyMat,
-    );
-    lLeg.position.set(-0.13, 0.45, 0);
-    lLeg.castShadow = true;
-    group.add(lLeg);
-
-    const rLeg = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.08, 0.065, 0.75, 8),
-      this.fallbackDummyMat,
-    );
-    rLeg.position.set(0.13, 0.45, 0);
-    rLeg.castShadow = true;
-    group.add(rLeg);
+    });
   }
 
   public async loadCharacterModel(): Promise<void> {
-    try {
-      const loader = new GLTFLoader();
-      loader.setMeshoptDecoder(MeshoptDecoder);
-      const gltf = await loader.loadAsync(MODELS.character);
-
-      const bbox = new THREE.Box3().setFromObject(gltf.scene);
-      const size = new THREE.Vector3();
-      bbox.getSize(size);
-      const targetHeight = 1.8;
-      const scale = targetHeight / Math.max(0.1, size.y);
-
-      gltf.scene.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          const m = child as THREE.Mesh;
-          m.castShadow = true;
-          m.receiveShadow = true;
-        }
-      });
-
-      this.dummies.forEach((dummy) => {
-        const cloned = SkeletonUtils.clone(gltf.scene);
-        cloned.scale.set(scale, scale, scale);
-        cloned.position.set(0, -bbox.min.y * scale, 0);
-
-        while (dummy.modelGroup.children.length > 0) {
-          dummy.modelGroup.remove(dummy.modelGroup.children[0]);
-        }
-        dummy.modelGroup.add(cloned);
-
-        const idle =
-          THREE.AnimationClip.findByName(gltf.animations, 'Idle') ??
-          gltf.animations[0];
-        if (idle) {
-          const mixer = new THREE.AnimationMixer(cloned);
-          mixer.clipAction(idle).play();
-
-          mixer.setTime(Math.random() * idle.duration);
-          this.mixers.set(dummy.id, mixer);
-        }
-      });
-    } catch (err) {
-      console.warn('Using procedural tactical combat dummies fallback:', err);
+    const assets = await loadHeroAssets();
+    for (const dummy of this.dummies) {
+      const hero = new Hero(assets);
+      dummy.hero = hero;
+      dummy.root.add(hero.root);
+      if (dummy.patrolSpeed) {
+        hero.play('Walk_Loop', 0).timeScale = HERO.ENEMY_WALK_SPEED_SCALE;
+      } else {
+        hero.root.rotation.y = FACE_PLAYER_YAW;
+        hero.play('Idle_Loop', 0);
+      }
+      // Desync idles so the squad doesn't breathe in lockstep.
+      hero.current!.time = Math.random() * hero.current!.getClip().duration;
+      hero.update(0);
     }
   }
 
@@ -307,17 +171,17 @@ export class DummyManager {
     dummy.health = Math.max(0, dummy.health - damage);
     const isKill = dummy.health <= 0;
 
-    dummy.flinchVelocity = TARGETS.DUMMY_FLINCH_VELOCITY;
-
     if (isKill) {
       dummy.isDead = true;
       dummy.respawnTimer = TARGETS.DUMMY_RESPAWN_S;
+      dummy.hero?.play('Death01', HERO.FADE_FAST_S);
       if (isHeadshot) {
         this.sound.playHeadshotHit();
       } else {
         this.sound.playBodyImpact();
       }
     } else {
+      dummy.hero?.playOnce(isHeadshot ? 'Hit_Head' : 'Hit_Chest');
       this.sound.playBodyImpact();
     }
 
@@ -337,56 +201,41 @@ export class DummyManager {
   }
 
   public update(delta: number): void {
-    const springStiffness = 95;
-    const damping = 12;
-
-    this.dummies.forEach((dummy) => {
-      const mixer = this.mixers.get(dummy.id);
-      if (mixer && !dummy.isDead) mixer.update(delta);
-
-      if (
-        dummy.patrolSpeed &&
+    for (const dummy of this.dummies) {
+      const hero = dummy.hero;
+      const patrols =
+        dummy.patrolSpeed !== undefined &&
         dummy.patrolMinX !== undefined &&
-        dummy.patrolMaxX !== undefined &&
-        !dummy.isDead
-      ) {
-        dummy.root.position.x +=
-          (dummy.patrolDir || 1) * dummy.patrolSpeed * delta;
-        if (dummy.root.position.x >= dummy.patrolMaxX) {
-          dummy.patrolDir = -1;
-        } else if (dummy.root.position.x <= dummy.patrolMinX) {
-          dummy.patrolDir = 1;
-        }
-      }
+        dummy.patrolMaxX !== undefined;
 
       if (dummy.isDead) {
         dummy.respawnTimer -= delta;
-
-        dummy.collapseProgress = Math.min(
-          1.0,
-          dummy.collapseProgress + delta * 3.5,
-        );
-        dummy.modelGroup.rotation.x = -dummy.collapseProgress * (Math.PI / 2.1);
-        dummy.modelGroup.position.y = -dummy.collapseProgress * 0.45;
-
         if (dummy.respawnTimer <= 0) {
           dummy.isDead = false;
           dummy.health = dummy.maxHealth;
-          dummy.collapseProgress = 0;
-          dummy.modelGroup.rotation.x = 0;
-          dummy.modelGroup.position.y = 0;
-          dummy.flinchAngle = 0;
-          dummy.flinchVelocity = 0;
+          hero?.play(patrols ? 'Walk_Loop' : 'Idle_Loop');
           this.sound.playDummyReset();
         }
-      } else {
-        dummy.flinchVelocity +=
-          (-dummy.flinchAngle * springStiffness -
-            dummy.flinchVelocity * damping) *
-          delta;
-        dummy.flinchAngle += dummy.flinchVelocity * delta;
-        dummy.modelGroup.rotation.x = dummy.flinchAngle;
+      } else if (hero) {
+        // Hit reactions are one-shots; resume the base loop once they end.
+        const reacting =
+          hero.isRunning('Hit_Chest') || hero.isRunning('Hit_Head');
+        if (!reacting) {
+          const base = hero.play(patrols ? 'Walk_Loop' : 'Idle_Loop');
+          if (patrols) base.timeScale = HERO.ENEMY_WALK_SPEED_SCALE;
+        }
+        if (patrols && !reacting) {
+          const dir = dummy.patrolDir ?? 1;
+          dummy.root.position.x += dir * dummy.patrolSpeed! * delta;
+          if (dummy.root.position.x >= dummy.patrolMaxX!) dummy.patrolDir = -1;
+          else if (dummy.root.position.x <= dummy.patrolMinX!)
+            dummy.patrolDir = 1;
+          hero.root.rotation.y =
+            dummy.patrolDir === 1 ? FACE_RIGHT_YAW : FACE_LEFT_YAW;
+        }
       }
-    });
+
+      hero?.update(delta);
+    }
   }
 }
