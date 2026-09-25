@@ -10,6 +10,7 @@ folder is gitignored. Run this once after cloning: python3 scripts/sync-quaterni
 
 import base64
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -23,6 +24,10 @@ CLIPS = [
     "anim-climb-up", "anim-crouch-idle", "anim-crouch-walk", "anim-jump-loop",
     "anim-jump-land", "anim-prone-crawl", "anim-hit-knockback",
 ]
+
+# Guns (Quaternius Ultimate Guns, OBJ + MTL). Keep in sync with GUN_MODELS[].FILE
+# in src/constants/weapons.ts.
+GUNS = ["AssaultRifle_2", "Pistol_1", "Shotgun_2"]
 
 
 def asset_payload(name):
@@ -45,8 +50,16 @@ def main():
         clip = asset_payload(asset)
         clips[clip["name"]] = clip
     (OUT / "anims.json").write_text(json.dumps(clips, separators=(",", ":")))
+
+    guns_out = OUT / "guns"
+    guns_out.mkdir(exist_ok=True)
+    (obj_dir,) = (ERANGEL).glob("OBJ-*/OBJ")
+    for gun in GUNS:
+        for ext in (".obj", ".mtl"):
+            shutil.copy(obj_dir / f"{gun}{ext}", guns_out / f"{gun}{ext}")
     print(f"wrote hero.fbx, textures and {len(clips)} clips to {OUT}:")
     print("  " + ", ".join(clips))
+    print("  guns: " + ", ".join(GUNS))
 
 
 if __name__ == "__main__":

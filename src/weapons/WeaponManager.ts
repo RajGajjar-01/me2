@@ -1,7 +1,6 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { SoundEngine } from '../audio/SoundEngine';
-import { HAND_MODEL_PATH, MODELS, SOUNDS } from '../constants/assets';
+import { SOUNDS } from '../constants/assets';
 import { INPUT } from '../constants/input';
 import { RELOAD_CUES, WEAPON_DEFS, WEAPONS } from '../constants/weapons';
 import type { InputManager } from '../core/InputManager';
@@ -9,7 +8,7 @@ import { BulletTracerManager } from '../effects/BulletTracer';
 import { DecalManager } from '../effects/DecalManager';
 import { DummyManager } from '../targets/DummyManager';
 import { TargetManager } from '../targets/TargetManager';
-import { type HandAsset, WeaponModels, type WeaponRig } from './WeaponModels';
+import { WeaponModels, type WeaponRig } from './WeaponModels';
 
 export interface WeaponData {
   name: string;
@@ -162,111 +161,20 @@ export class WeaponManager {
     this.targetManager = new TargetManager(scene, this.soundEngine);
     this.dummyManager = new DummyManager(scene, this.soundEngine);
 
-    const akRig = WeaponModels.createRifleRig();
-    const pistolRig = WeaponModels.createPistolRig();
-    const shotgunRig = WeaponModels.createRifleRig();
-
-    this.weaponRigs.push(akRig, pistolRig, shotgunRig);
-    this.viewmodelContainer.add(akRig.root);
-    this.viewmodelContainer.add(pistolRig.root);
-    this.viewmodelContainer.add(shotgunRig.root);
-
     this.selectWeapon(0, false);
   }
 
   public async loadAssets(
     onProgress?: (status: string) => void,
   ): Promise<void> {
-    onProgress?.('LOADING OPERATOR HANDS...');
-    let handAsset: HandAsset | undefined;
-    try {
-      const handLoader = new GLTFLoader();
-      const handGltf = await handLoader.loadAsync(HAND_MODEL_PATH);
-      handAsset = { scene: handGltf.scene, clip: handGltf.animations[0] };
-    } catch (err) {
-      console.warn(
-        'Failed to load hand model, falling back to block-glove arms:',
-        err,
-      );
-    }
-
-    onProgress?.('LOADING AUTHENTIC AK-47 3D MODEL...');
-    try {
-      const loader = new GLTFLoader();
-      const gltf = await loader.loadAsync(MODELS.ak47);
-
-      const realAkRig = WeaponModels.createRealAKRig(gltf.scene, handAsset);
-
-      const oldRig = this.weaponRigs[0];
-      if (oldRig) {
-        this.viewmodelContainer.remove(oldRig.root);
-      }
-
-      this.weaponRigs[0] = realAkRig;
-      this.viewmodelContainer.add(realAkRig.root);
-      realAkRig.root.visible = this.currentWeaponIndex === 0;
-
-      onProgress?.('AUTHENTIC AK-47 EQUIPPED');
-    } catch (err) {
-      console.warn(
-        'Failed to load authentic AK-47 GLB model, using procedural fallback:',
-        err,
-      );
-    }
-
-    onProgress?.('LOADING TACTICAL SILENCED SIDEARM...');
-    try {
-      const loader = new GLTFLoader();
-      const pistolGltf = await loader.loadAsync(MODELS.pistol);
-
-      const realPistolRig = WeaponModels.createRealPistolRig(
-        pistolGltf.scene,
-        handAsset,
-      );
-
-      const oldRig = this.weaponRigs[1];
-      if (oldRig) {
-        this.viewmodelContainer.remove(oldRig.root);
-      }
-
-      this.weaponRigs[1] = realPistolRig;
-      this.viewmodelContainer.add(realPistolRig.root);
-      realPistolRig.root.visible = this.currentWeaponIndex === 1;
-
-      onProgress?.('TACTICAL GHOST SIDEARM EQUIPPED');
-    } catch (err) {
-      console.warn(
-        'Failed to load pistol.glb model, using procedural fallback:',
-        err,
-      );
-    }
-
-    onProgress?.('LOADING 12-GAUGE BREACHING SHOTGUN...');
-    try {
-      const loader = new GLTFLoader();
-      const shotgunGltf = await loader.loadAsync(MODELS.shotgun);
-
-      const realShotgunRig = WeaponModels.createRealShotgunRig(
-        shotgunGltf.scene,
-        handAsset,
-      );
-
-      const oldRig = this.weaponRigs[2];
-      if (oldRig) {
-        this.viewmodelContainer.remove(oldRig.root);
-      }
-
-      this.weaponRigs[2] = realShotgunRig;
-      this.viewmodelContainer.add(realShotgunRig.root);
-      realShotgunRig.root.visible = this.currentWeaponIndex === 2;
-
-      onProgress?.('BREACHER 12G EQUIPPED');
-    } catch (err) {
-      console.warn(
-        'Failed to load shotgun.glb model, using procedural fallback:',
-        err,
-      );
-    }
+    onProgress?.('LOADING WEAPONS...');
+    this.weaponRigs = await Promise.all(
+      this.weapons.map((_, i) => WeaponModels.loadGunRig(i)),
+    );
+    this.weaponRigs.forEach((rig, i) => {
+      rig.root.visible = i === this.currentWeaponIndex;
+      this.viewmodelContainer.add(rig.root);
+    });
 
     await this.soundEngine.loadSamples(SOUNDS, onProgress);
 

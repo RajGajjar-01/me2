@@ -145,3 +145,46 @@ export const RELOAD_CUES = {
   MAG_IN_T: 0.6,
   BOLT_RACK_T: 0.82,
 } as const;
+
+// Quaternius "Ultimate Guns" OBJ models (from erangel-run, synced into
+// src/assets/character/guns). Index matches WEAPON_DEFS. Model coordinates
+// have the barrel along +X; each gun is scaled to LENGTH_M and placed so its
+// bore MUZZLE_MODEL lands on RIG_MUZZLE (the old viewmodel muzzle, keeping
+// ADS/recoil framing). Grips are where the hero's wrists go (model units).
+// TWIST turns the torso (rad, about up) so the left hand reaches long guns;
+// WEAPON_DEFS idle/ads offsets were measured with it to stay within arm reach.
+export const GUN_MODELS = [
+  {
+    FILE: 'AssaultRifle_2',
+    TWIST: -0.7,
+    LENGTH_M: 0.88,
+    MUZZLE_MODEL: [3.82, 0.69, 0] as const,
+    RIGHT_GRIP_MODEL: [-0.05, 0.05, 0] as const,
+    LEFT_GRIP_MODEL: [2.2, 0.36, 0] as const,
+    RIG_MUZZLE: [0, 0.07, -0.97] as const,
+    CHAMBER: [0.035, 0.05, -0.02] as const,
+    FLASH: 'rifle' as const,
+  },
+  {
+    FILE: 'Pistol_1',
+    TWIST: 0,
+    LENGTH_M: 0.22,
+    MUZZLE_MODEL: [1.48, 0.56, 0] as const,
+    RIGHT_GRIP_MODEL: [-0.12, 0.12, 0] as const,
+    LEFT_GRIP_MODEL: [-0.08, -0.05, -0.14] as const,
+    RIG_MUZZLE: [0, 0.032, -0.29] as const,
+    CHAMBER: [0.015, 0.035, -0.04] as const,
+    FLASH: 'pistol' as const,
+  },
+  {
+    FILE: 'Shotgun_2',
+    TWIST: -0.7,
+    LENGTH_M: 1.0,
+    MUZZLE_MODEL: [4.35, 0.22, 0] as const,
+    RIGHT_GRIP_MODEL: [0.45, -0.08, 0] as const,
+    LEFT_GRIP_MODEL: [2.2, -0.1, 0] as const,
+    RIG_MUZZLE: [0, 0.045, -0.815] as const,
+    CHAMBER: [0.03, 0.03, -0.02] as const,
+    FLASH: 'rifle' as const,
+  },
+] as const;
