@@ -174,7 +174,11 @@ export class DummyManager {
     if (isKill) {
       dummy.isDead = true;
       dummy.respawnTimer = TARGETS.DUMMY_RESPAWN_S;
-      dummy.hero?.play('Death01', HERO.FADE_FAST_S);
+      // Headshots throw the body backwards; other kills collapse.
+      dummy.hero?.play(
+        isHeadshot ? 'Hit_Knockback' : 'Death01',
+        HERO.FADE_FAST_S,
+      );
       if (isHeadshot) {
         this.sound.playHeadshotHit();
       } else {
