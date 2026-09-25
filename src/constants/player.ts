@@ -2,27 +2,32 @@
 // Units suffixed where it matters (_S seconds, _PER_S per-second).
 // Values moved verbatim from PlayerController — do not retune here.
 
+// Speeds follow the clips like erangel-run (clips play at 1x):
+// Walk_Loop 1.3 m / 1.333 s, Crouch_Fwd_Loop 1.5 m / 2 s; prone crawls slower.
 export const STANCES = {
-  stand: { height: 1.35, eyeOffset: 0.28, speed: 5.2 },
-  crouch: { height: 0.35, eyeOffset: 0.22, speed: 3.7 },
-  prone: { height: 0.1, eyeOffset: -0.03, speed: 1.3 },
+  stand: { height: 1.35, eyeOffset: 0.28, speed: 1.3 / 1.333 },
+  crouch: { height: 0.35, eyeOffset: 0.22, speed: 1.5 / 2 },
+  prone: { height: 0.1, eyeOffset: -0.03, speed: 0.5 },
 } as const;
 
 export type Stance = keyof typeof STANCES;
 
+// Metres per footstep = clip travel per cycle / 2 steps.
 export const STRIDE = {
-  stand: 1.6,
-  crouch: 1.3,
-  prone: 0.9,
+  stand: 0.65,
+  crouch: 0.75,
+  prone: 0.5,
 } as const;
 
-export const SPRINT_STRIDE_MULT = 1.35;
+// Sprint_Loop: 5.5 m per 2 steps vs the walk step.
+export const SPRINT_STRIDE_MULT = 2.75 / 0.65;
 
 export const PLAYER = {
   CAPSULE_RADIUS: 0.38,
   CAPSULE_START_Y: 0.4,
   CAPSULE_START_Z: 28,
-  SPRINT_SPEED: 8.6,
+  // Sprint_Loop 5.5 m / 0.667 s (erangel-run's SPRINT_SPEED).
+  SPRINT_SPEED: 5.5 / 0.667,
   JUMP_FORCE: 6.8,
   GRAVITY: -20.0,
   MAX_STAMINA: 100,

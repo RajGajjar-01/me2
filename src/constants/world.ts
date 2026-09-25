@@ -18,7 +18,8 @@ export const TARGETS = {
   HINGE_MIN: -Math.PI / 2.2,
   HINGE_MAX: 0.2,
   DUMMY_MAX_HEALTH: 100,
-  DUMMY_PATROL_SPEED: 2.2,
+  // Walk_Loop stride speed so enemy feet don't slide.
+  DUMMY_PATROL_SPEED: 1.3 / 1.333,
   DUMMY_HEADSHOT_DAMAGE: 100,
   DUMMY_LEGS_DAMAGE_MULT: 0.6,
   DUMMY_RESPAWN_S: 3.5,
