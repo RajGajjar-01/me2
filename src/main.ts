@@ -3,7 +3,7 @@ import { loadHeroAssets } from './character/HeroModel';
 import { AUDIO } from './constants/audio';
 import { INPUT } from './constants/input';
 import { CAMERA, PLAYER } from './constants/player';
-import { WEAPONS } from './constants/weapons';
+import { GUN_MODELS, WEAPONS } from './constants/weapons';
 import { WORLD } from './constants/world';
 import { GraphicsSettings } from './core/GraphicsSettings';
 import { InputManager } from './core/InputManager';
@@ -104,8 +104,10 @@ class GameApp {
         this.range.colliderMesh,
       );
 
-      this.weapons.onRecoil = (pitch, yaw) =>
+      this.weapons.onRecoil = (pitch, yaw) => {
         this.player!.applyRecoil(pitch, yaw);
+        this.playerCharacter?.onShot();
+      };
 
       this.player.onFootstep = (stance, isSprinting) => {
         const gain =
@@ -254,8 +256,11 @@ class GameApp {
         this.player.aimLock = aiming;
         this.player.sprintBlocked = this.weapons.isReloading;
         this.weapons.raisedHold = this.player.stance === 'prone';
-        this.weapons.viewmodelContainer.visible = !tpp;
-        this.weapons.thirdPersonMuzzle = tpp
+        // Pistols live in the hero's hand in both views (erangel-run style).
+        const bodyGun =
+          tpp || GUN_MODELS[this.weapons.currentWeaponIndex].PISTOL_CLIPS;
+        this.weapons.viewmodelContainer.visible = !bodyGun;
+        this.weapons.thirdPersonMuzzle = bodyGun
           ? this.playerCharacter.muzzle(this.weapons.currentWeaponIndex)
           : null;
         if (this.weapons) {
@@ -272,7 +277,11 @@ class GameApp {
           );
         }
         this.player.update(delta);
-        this.playerCharacter.update(delta, this.weapons.currentWeaponIndex);
+        this.playerCharacter.update(
+          delta,
+          this.weapons.currentWeaponIndex,
+          this.weapons.isReloading,
+        );
       }
 
       this.updateHUD(delta);

@@ -13,6 +13,10 @@ export const HERO_CLIPS = [
   'Hit_Head',
   'Death01',
   'Hit_Knockback',
+  'Pistol_Idle_Loop',
+  'Pistol_Aim_Neutral',
+  'Pistol_Shoot',
+  'Pistol_Reload',
   'Slide_Start',
   'Slide_Loop',
   'Slide_Exit',
@@ -28,6 +32,9 @@ export const HERO_ONE_SHOTS: readonly HeroClip[] = [
   'Hit_Head',
   'Death01',
   'Hit_Knockback',
+  'Pistol_Aim_Neutral',
+  'Pistol_Shoot',
+  'Pistol_Reload',
   'Slide_Start',
   'Slide_Exit',
   'ClimbUp_1m',
@@ -52,6 +59,11 @@ export const HERO = {
   PRONE_BODY_SHIFT_M: 0.75,
   // Lift the head (rad) so a face-down body looks forward.
   PRONE_NECK_LIFT: 1.35,
+  // Point the feet back (rad) so the tops of the feet lie on the ground
+  // instead of the toes stabbing into it.
+  PRONE_FOOT_POINT: 1.2,
+  // Prone leg direction in the body frame (x out, y up, +z toward the feet).
+  PRONE_LEG_DIR: [0.12, -0.18, 1] as const,
   // Frog crawl: one leg cycle per CRAWL_STRIDE_M travelled. The knee is
   // drawn up sideways along the ground (hip swings out, shin folds back).
   CRAWL_STRIDE_M: 0.6,
@@ -100,8 +112,6 @@ export const GUN_HOLD = {
   // ...and drops toward the right hip, clear of the head (m, body frame).
   LOW_READY_OFFSET: [0.04, -0.12, 0] as const,
   SPRINT_PITCH: -0.4,
-  // One-handed sprint (small guns): muzzle raised beside the shoulder.
-  ONE_HAND_SPRINT_PITCH: 0.9,
   SPINE_PITCH_SHARE: 0.5,
   IK_BLEND_PER_S: 10,
   // Hand pose in the gun frame (x right, y up, -z forward): where the fingers
@@ -117,4 +127,18 @@ export const GUN_HOLD = {
   // Elbow pole directions in the aim frame.
   POLE_RIGHT: [0.8, -1, 0.3] as const,
   POLE_LEFT: [-0.8, -1, 0.2] as const,
+} as const;
+
+// Pistols use erangel-run's own pistol clips and hand attachment (src/main.js
+// attachPistol + GUN_FIT), copied as-is. Hand-local metres / radians.
+export const ERANGEL_PISTOL = {
+  HAND_OFFSET: [-0.025, 0.075, 0.025] as const,
+  HAND_ROT_X: Math.PI / 2,
+  // GUN_FIT: y, z - fwd
+  FIT: [0, -0.018, 0.012 - 0.025] as const,
+  // Grip point: 16% along from the back, 22% up the gun's bounds.
+  GRIP_ALONG: 0.16,
+  GRIP_UP: 0.22,
+  SHOOT_FADE_S: 0.04,
+  RELOAD_FADE_S: 0.1,
 } as const;

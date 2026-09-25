@@ -22,7 +22,8 @@ CLIPS = [
     "anim-idle", "anim-walk", "anim-sprint", "anim-roll", "anim-hithead",
     "anim-death", "anim-slide-start", "anim-slide-loop", "anim-slide-exit",
     "anim-climb-up", "anim-crouch-idle", "anim-crouch-walk", "anim-jump-loop",
-    "anim-jump-land", "anim-hit-knockback",
+    "anim-jump-land", "anim-hit-knockback", "anim-pistol-idle", "anim-pistol-aim",
+    "anim-pistol-shoot", "anim-pistol-reload",
 ]
 
 # Guns (Quaternius Ultimate Guns, OBJ + MTL). Keep in sync with GUN_MODELS[].FILE

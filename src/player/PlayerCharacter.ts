@@ -1,7 +1,12 @@
 import * as THREE from 'three';
 import { type Arm, rotateWorld, solveArm } from '../character/armIK';
 import { Hero, type HeroAssets } from '../character/HeroModel';
-import { GUN_HOLD, HERO, type HeroClip } from '../constants/character';
+import {
+  ERANGEL_PISTOL,
+  GUN_HOLD,
+  HERO,
+  type HeroClip,
+} from '../constants/character';
 import { MANTLE } from '../constants/player';
 import { GUN_MODELS } from '../constants/weapons';
 import { gripOf, type WeaponRig } from '../weapons/WeaponModels';
@@ -57,6 +62,8 @@ function basisFrom(
 /** Third-person copy of a viewmodel gun (no muzzle flash/light). */
 interface TppGun {
   group: THREE.Group;
+  /** Pistols: hand-local -> gun transform, as erangel-run attaches it. */
+  handFit: THREE.Matrix4 | null;
   leftArm: THREE.Group;
   rightArm: THREE.Group;
   muzzle: THREE.Object3D;
@@ -83,15 +90,20 @@ export class PlayerCharacter {
   /** Their clean animated pose (the mixer only rewrites changed values). */
   private animPose = new Map<THREE.Object3D, THREE.Quaternion>();
   private ikWeight = 1;
-  /** Left hand's own IK weight (free during a one-handed sprint). */
-  private leftWeight = 1;
+  private shotPending = false;
+  private wasReloading = false;
   /** Third-person carry pitch (rad) or null when the gun is up on target. */
   private carry: number | null = null;
   /** 0 standing .. 1 lying face-down. */
   private proneT = 0;
   private crawlPhase = 0;
   private neck: THREE.Object3D;
-  private legs: { thigh: THREE.Object3D; calf: THREE.Object3D; out: number }[];
+  private legs: {
+    thigh: THREE.Object3D;
+    calf: THREE.Object3D;
+    foot: THREE.Object3D;
+    out: number;
+  }[];
   private handToGun = new THREE.Matrix4();
   private hasHandToGun = false;
   private lastMove = 'normal';
@@ -129,8 +141,8 @@ export class PlayerCharacter {
     this.neck = b('neck_01');
     // `out` = which way (about up) swings that leg outward: left leg to -X.
     this.legs = [
-      { thigh: b('thigh_l'), calf: b('calf_l'), out: -1 },
-      { thigh: b('thigh_r'), calf: b('calf_r'), out: 1 },
+      { thigh: b('thigh_l'), calf: b('calf_l'), foot: b('foot_l'), out: -1 },
+      { thigh: b('thigh_r'), calf: b('calf_r'), foot: b('foot_r'), out: 1 },
     ];
     this.handR = this.arms.right.hand;
     const { right, left } = this.arms;
@@ -143,14 +155,14 @@ export class PlayerCharacter {
       left.lower,
       left.hand,
       this.neck,
-      ...this.legs.flatMap((l) => [l.thigh, l.calf]),
+      ...this.legs.flatMap((l) => [l.thigh, l.calf, l.foot]),
     ];
     this.grips = {
       right: this.handGrip('r', GUN_HOLD.RIGHT_FINGERS, GUN_HOLD.RIGHT_PALM),
       left: this.handGrip('l', GUN_HOLD.LEFT_FINGERS, GUN_HOLD.LEFT_PALM),
     };
 
-    this.guns = rigs.map((rig) => {
+    this.guns = rigs.map((rig, i) => {
       const kids = rig.root.children;
       const group = rig.root.clone(true);
       const leftArm = group.children[kids.indexOf(rig.leftArm)] as THREE.Group;
@@ -168,7 +180,15 @@ export class PlayerCharacter {
       muzzle.position.copy(rig.muzzlePos);
       group.add(muzzle);
       scene.add(group);
-      return { group, leftArm, rightArm, muzzle };
+      return {
+        group,
+        leftArm,
+        rightArm,
+        muzzle,
+        handFit: GUN_MODELS[i].PISTOL_CLIPS
+          ? PlayerCharacter.pistolFit(group)
+          : null,
+      };
     });
   }
 
@@ -205,14 +225,43 @@ export class PlayerCharacter {
     };
   }
 
+  /**
+   * erangel-run's attachPistol: grip point (16% along from the back, 22% up
+   * the bounds) onto the origin, GUN_FIT nudge, turned +90deg about X, then
+   * offset in the hand bone's frame.
+   */
+  private static pistolFit(group: THREE.Group): THREE.Matrix4 {
+    group.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(group);
+    const size = box.getSize(new THREE.Vector3());
+    const grip = new THREE.Vector3(
+      (box.min.x + box.max.x) / 2,
+      box.min.y + size.y * ERANGEL_PISTOL.GRIP_UP,
+      box.max.z - size.z * ERANGEL_PISTOL.GRIP_ALONG, // barrel is -Z, back is +Z
+    );
+    const [ox, oy, oz] = ERANGEL_PISTOL.HAND_OFFSET;
+    const [fx, fy, fz] = ERANGEL_PISTOL.FIT;
+    return new THREE.Matrix4()
+      .makeTranslation(ox, oy, oz)
+      .multiply(new THREE.Matrix4().makeRotationX(ERANGEL_PISTOL.HAND_ROT_X))
+      .multiply(new THREE.Matrix4().makeTranslation(fx, fy, fz))
+      .multiply(new THREE.Matrix4().makeTranslation(-grip.x, -grip.y, -grip.z));
+  }
+
+  /** Called when the current gun fires (pistol plays its shoot clip). */
+  public onShot(): void {
+    this.shotPending = true;
+  }
+
   /** Muzzle of the third-person gun (tracers start here in TPP). */
   public muzzle(weaponIndex: number): THREE.Object3D {
     return this.guns[weaponIndex].muzzle;
   }
 
-  public update(delta: number, weaponIndex: number): void {
+  public update(delta: number, weaponIndex: number, reloading: boolean): void {
     const p = this.player;
     const tpp = p.viewMode === 'tpp';
+    const pistol = GUN_MODELS[weaponIndex].PISTOL_CLIPS;
     this.head.scale.setScalar(tpp ? 1 : HERO.FPV_HEAD_SCALE);
 
     const root = this.hero.root;
@@ -228,40 +277,34 @@ export class PlayerCharacter {
       const q = this.animPose.get(bone);
       if (q) bone.quaternion.copy(q);
     }
-    this.updateAnimation();
+    this.updateAnimation(pistol, reloading);
     this.hero.update(delta);
     for (const bone of this.edited) {
       const q = this.animPose.get(bone);
       if (q) q.copy(bone.quaternion);
       else this.animPose.set(bone, bone.quaternion.clone());
     }
+    _qYaw.setFromAxisAngle(UP, p.facingYaw);
     this.layProne(delta);
     root.updateMatrixWorld(true);
 
     const k = Math.min(1, delta * GUN_HOLD.IK_BLEND_PER_S);
     // Hands leave the IK during special moves (the arms run the clip and
-    // the gun rides the right hand). A third-person sprint with a small gun
-    // frees only the left arm; long guns stay two-handed.
-    const oneHandSprint =
-      tpp && p.isSprinting && GUN_MODELS[weaponIndex].ONE_HANDED;
-    const holdsGun = p.move === 'normal' ? 1 : 0;
-    const leftHolds = holdsGun && !oneHandSprint ? 1 : 0;
+    // the gun rides the right hand). Pistols never use IK: erangel-run's
+    // pistol clips pose the arms and the pistol sits in the right hand.
+    const holdsGun = p.move === 'normal' && !pistol ? 1 : 0;
     this.ikWeight += (holdsGun - this.ikWeight) * k;
-    this.leftWeight += (leftHolds - this.leftWeight) * k;
     const w = this.ikWeight;
 
     // The aim frame always follows the crosshair; the third-person carry
     // (low-ready / sprint) is applied later by pivoting the gun at the hand.
     const pitch = p.pitch;
     this.carry =
-      tpp && !p.aimLock
-        ? oneHandSprint
-          ? GUN_HOLD.ONE_HAND_SPRINT_PITCH
-          : p.isSprinting
-            ? GUN_HOLD.SPRINT_PITCH
-            : GUN_HOLD.LOW_READY_PITCH
+      tpp && !p.aimLock && !pistol
+        ? p.isSprinting
+          ? GUN_HOLD.SPRINT_PITCH
+          : GUN_HOLD.LOW_READY_PITCH
         : null;
-    _qYaw.setFromAxisAngle(UP, p.facingYaw);
     _euler.set(pitch, p.facingYaw, 0);
     _qAim.setFromEuler(_euler);
 
@@ -277,13 +320,27 @@ export class PlayerCharacter {
       rotateWorld(this.chest, _q);
     }
 
+    // The pistol is the body's own in both views; long guns use the
+    // camera-attached viewmodel in first-person.
     this.guns.forEach((g, i) => {
-      g.group.visible = tpp && i === weaponIndex;
+      g.group.visible = (tpp || pistol) && i === weaponIndex;
     });
 
     const rig = this.rigs[weaponIndex];
     this.eyePoint(_eye);
-    if (tpp) {
+    if (!tpp) {
+      // First-person: camera at the eyes (position only; aim stays). The
+      // viewmodel is its child, so update it before the IK reads the grips.
+      p.camera.position.copy(_eye);
+      p.camera.updateMatrixWorld(true);
+    }
+    if (pistol) {
+      const gun = this.guns[weaponIndex];
+      this.handR.matrixWorld.decompose(_b, _quat, _scale);
+      _m.compose(_b, _quat, _one); // hand frame without the rig's bone scale
+      gun.group.matrix.multiplyMatrices(_m, gun.handFit!);
+      gun.group.updateMatrixWorld(true);
+    } else if (tpp) {
       const gun = this.guns[weaponIndex];
       // Mirror the viewmodel's reload choreography onto the TPP hands.
       gun.leftArm.position.copy(rig.leftArm.position);
@@ -301,10 +358,6 @@ export class PlayerCharacter {
         this.hasHandToGun = true;
       }
     } else {
-      // First-person: camera at the eyes (position only; aim stays). The
-      // viewmodel is its child, so update it before the IK reads the grips.
-      p.camera.position.copy(_eye);
-      p.camera.updateMatrixWorld(true);
       this.reachFor(gripOf(rig.rightArm), gripOf(rig.leftArm), rig.root);
     }
   }
@@ -382,16 +435,8 @@ export class PlayerCharacter {
       poleR,
     );
     this.blendArm(right, w);
-    const wl = Math.min(w, this.leftWeight);
-    if (wl > 1e-3) {
-      this.gripHand(
-        left,
-        this.grips.left,
-        leftGrip.getWorldPosition(_tL),
-        poleL,
-      );
-      this.blendArm(left, wl);
-    }
+    this.gripHand(left, this.grips.left, leftGrip.getWorldPosition(_tL), poleL);
+    this.blendArm(left, w);
   }
 
   /** Blend an IK'd arm back toward its animated pose (e.g. mid-roll). */
@@ -453,6 +498,19 @@ export class PlayerCharacter {
       this.neck,
       _q.setFromAxisAngle(right, HERO.PRONE_NECK_LIFT * t),
     );
+    // Straighten both legs back along the ground: the idle clip stands with
+    // a bent, weight-shifted knee that would stick up in the air when lying.
+    for (const leg of this.legs) {
+      this.alignBone(leg.thigh, leg.calf, leg.out, t);
+      this.alignBone(leg.calf, leg.foot, leg.out, t);
+    }
+    // Feet point back (toes down -> toes behind): -angle about `right`.
+    for (const leg of this.legs) {
+      rotateWorld(
+        leg.foot,
+        _q.setFromAxisAngle(right, -HERO.PRONE_FOOT_POINT * t),
+      );
+    }
 
     this.crawlPhase +=
       ((p.getSpeed() * delta) / HERO.CRAWL_STRIDE_M) * Math.PI * 2;
@@ -473,7 +531,28 @@ export class PlayerCharacter {
     }
   }
 
-  private updateAnimation(): void {
+  /**
+   * Turn `bone` so the segment to `child` lies back along the ground behind
+   * the prone body (slightly splayed by `side`, dropping toward the floor).
+   */
+  private alignBone(
+    bone: THREE.Object3D,
+    child: THREE.Object3D,
+    side: number,
+    t: number,
+  ): void {
+    bone.getWorldPosition(_tR);
+    const current = child.getWorldPosition(_tL).sub(_tR).normalize();
+    const [x, y, z] = HERO.PRONE_LEG_DIR;
+    const want = _c
+      .set(x * side, y, z)
+      .normalize()
+      .applyQuaternion(_qYaw);
+    _q.setFromUnitVectors(current, want);
+    rotateWorld(bone, _quat.identity().slerp(_q, t));
+  }
+
+  private updateAnimation(pistol: boolean, reloading: boolean): void {
     const p = this.player;
     const hero = this.hero;
     const speed = p.getSpeed();
@@ -505,6 +584,19 @@ export class PlayerCharacter {
     if (this.lastMove === 'slide') hero.playOnce('Slide_Exit');
     this.lastMove = p.move;
 
+    // erangel-run pistol: shoot / reload one-shots own the body until done.
+    const reloadStarted = reloading && !this.wasReloading;
+    this.wasReloading = reloading;
+    const shot = this.shotPending;
+    this.shotPending = false;
+    if (pistol) {
+      if (reloadStarted)
+        hero.playOnce('Pistol_Reload', ERANGEL_PISTOL.RELOAD_FADE_S);
+      else if (shot) hero.playOnce('Pistol_Shoot', ERANGEL_PISTOL.SHOOT_FADE_S);
+      if (hero.isRunning('Pistol_Reload') || hero.isRunning('Pistol_Shoot'))
+        return;
+    }
+
     // Let short one-shots finish; moving cuts them short (except the climb).
     const busy: HeroClip[] = ['Slide_Exit', 'Jump_Land', 'Roll', 'ClimbUp_1m'];
     if (
@@ -533,6 +625,10 @@ export class PlayerCharacter {
     } else if (p.stance === 'crouch') {
       clip = moving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop';
       if (moving) rate = at(HERO.CROUCH_CLIP_SPEED);
+    } else if (pistol && p.aimLock) {
+      clip = 'Pistol_Aim_Neutral'; // erangel-run: aiming overrides moving
+    } else if (pistol && !moving) {
+      clip = 'Pistol_Idle_Loop';
     } else if (!moving) {
       clip = 'Idle_Loop';
     } else if (p.isSprinting) {

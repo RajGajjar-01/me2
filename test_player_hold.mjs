@@ -132,7 +132,7 @@ function run(view, weapon, aiming) {
       new THREE.Euler(player.pitch, player.yaw, 0, 'YXZ'),
     );
     player.camera.updateMatrixWorld(true);
-    pc.update(1 / 60, weapon);
+    pc.update(1 / 60, weapon, false);
   }
   scene.updateMatrixWorld(true);
   const rig = rigs[weapon];
@@ -162,7 +162,7 @@ function run(view, weapon, aiming) {
 {
   player.viewMode = 'tpp';
   player.facingYaw = 0;
-  for (let f = 0; f < 10; f++) pc.update(1 / 60, 0);
+  for (let f = 0; f < 10; f++) pc.update(1 / 60, 0, false);
   scene.updateMatrixWorld(true);
   const toes = bonePos('ball_l').sub(bonePos('foot_l')).setY(0).normalize();
   console.log(`facing: toes horizontal z ${toes.z.toFixed(2)} (must be < 0)`);
@@ -188,7 +188,7 @@ function run(view, weapon, aiming) {
     ctl.yaw = yaw;
     for (let f = 0; f < 90; f++) {
       ctl.update(1 / 60);
-      pc2.update(1 / 60, 0);
+      pc2.update(1 / 60, 0, false);
     }
     scene.updateMatrixWorld(true);
     const chest = pc2.hero
@@ -215,14 +215,14 @@ function run(view, weapon, aiming) {
 
 // Third-person sprint: long guns two-handed and carried low; small guns
 // one-handed (right hand), muzzle raised, left arm running free.
-for (const w of [0, 1]) {
+for (const w of [0]) {
   player.viewMode = 'tpp';
   player.stance = 'stand';
   player.aimLock = false;
   player.isSprinting = true;
   player.velocity.set(0, 0, -8);
   container.position.set(...WEAPON_DEFS[w].idleOffset);
-  for (let f = 0; f < 60; f++) pc.update(1 / 60, w);
+  for (let f = 0; f < 60; f++) pc.update(1 / 60, w, false);
   scene.updateMatrixWorld(true);
   const gun = pc.guns[w];
   const gunQ = gun.group.getWorldQuaternion(new THREE.Quaternion());
@@ -238,13 +238,8 @@ for (const w of [0, 1]) {
     `tpp sprint ${WEAPON_DEFS[w].name.padEnd(15)} wrist err R ${(R.err * 100).toFixed(1)}cm L ${(L.err * 100).toFixed(1)}cm  left hand off grip ${leftOff.toFixed(2)}m  muzzle ${muzzleUp > 0 ? 'above' : 'below'} hand ${Math.abs(muzzleUp).toFixed(2)}m`,
   );
   assert.ok(R.err < 0.03, 'right hand holds the gun while sprinting');
-  if (w === 1) {
-    assert.ok(leftOff > 0.15, 'small gun: left arm runs free');
-    assert.ok(muzzleUp > 0.05, 'small gun: muzzle raised');
-  } else {
-    assert.ok(L.err < 0.03, 'long gun: both hands stay on it');
-    assert.ok(muzzleUp < 0, 'long gun: carried low');
-  }
+  assert.ok(L.err < 0.03, 'long gun: both hands stay on it');
+  assert.ok(muzzleUp < 0, 'long gun: carried low');
 }
 player.isSprinting = false;
 player.velocity.set(0, 0, 0);
@@ -263,7 +258,7 @@ player.velocity.set(0, 0, 0);
   let faceLocal = null;
   for (const w of [1, 0, 1, 2]) {
     container.position.set(...WEAPON_DEFS[w].idleOffset);
-    for (let f = 0; f < 60; f++) pc.update(1 / 60, w);
+    for (let f = 0; f < 60; f++) pc.update(1 / 60, w, false);
     scene.updateMatrixWorld(true);
     // Pistol has no torso twist: take its head frame as "looking forward".
     if (!faceLocal) {
@@ -293,9 +288,52 @@ player.velocity.set(0, 0, 0);
   }
 }
 
+// Pistol: erangel-run clips + the pistol fixed in the right hand, both views.
+{
+  player.stance = 'stand';
+  player.onGround = true;
+  player.isSprinting = false;
+  player.velocity.set(0, 0, 0);
+  const gun = pc.guns[1];
+  const clip = () => pc.hero.current?.getClip().name;
+  const inHand = () => {
+    scene.updateMatrixWorld(true);
+    return new THREE.Vector3()
+      .setFromMatrixPosition(gun.group.matrixWorld)
+      .applyMatrix4(pc.hero.bone('hand_r').matrixWorld.clone().invert());
+  };
+  for (const view of ['tpp', 'fpv']) {
+    player.viewMode = view;
+    player.aimLock = false;
+    for (let f = 0; f < 40; f++) pc.update(1 / 60, 1, false);
+    const idleClip = clip();
+    const a = inHand();
+    player.aimLock = true;
+    for (let f = 0; f < 40; f++) pc.update(1 / 60, 1, false);
+    const aimClip = clip();
+    const b = inHand();
+    pc.onShot();
+    pc.update(1 / 60, 1, false);
+    const shootClip = clip();
+    const chest = bonePos('spine_03');
+    const ahead = chest.z - gun.muzzle.getWorldPosition(new THREE.Vector3()).z;
+    console.log(
+      `pistol ${view}: ${idleClip} -> ${aimClip} -> ${shootClip}  gun-in-hand drift ${(a.distanceTo(b) * 100).toFixed(1)}cm  visible ${gun.group.visible}  muzzle ${ahead.toFixed(2)}m ahead`,
+    );
+    assert.equal(idleClip, 'Pistol_Idle_Loop');
+    assert.equal(aimClip, 'Pistol_Aim_Neutral');
+    assert.equal(shootClip, 'Pistol_Shoot');
+    assert.ok(a.distanceTo(b) < 1e-3, 'pistol stays fixed in the right hand');
+    assert.ok(gun.group.visible, 'the body pistol shows in both views');
+    assert.ok(ahead > 0.2, 'aimed pistol points forward');
+  }
+  player.aimLock = false;
+}
+
 const TOLERANCE_M = 0.03;
 for (const view of ['fpv', 'tpp']) {
-  for (let w = 0; w < WEAPON_DEFS.length; w++) {
+  for (const w of [0, 2]) {
+    // long guns (pistol: erangel clips, tested below)
     for (const aiming of [false, true]) {
       const r = run(view, w, aiming);
       for (const h of [r.R, r.L]) {
@@ -315,7 +353,7 @@ for (const view of ['fpv', 'tpp']) {
 player.viewMode = 'fpv';
 player.stance = 'stand';
 player.velocity.set(0, 0, 0);
-for (let f = 0; f < 60; f++) pc.update(1 / 60, 0);
+for (let f = 0; f < 60; f++) pc.update(1 / 60, 0, false);
 scene.updateMatrixWorld(true);
 const headQ = () =>
   pc.hero.bone('Head').getWorldQuaternion(new THREE.Quaternion());
@@ -329,7 +367,7 @@ let lowestBone = '';
 let maxKneeOut = 0;
 for (let f = 0; f < 120; f++) {
   player.velocity.set(0, 0, f < 60 ? 0 : -0.5); // settle, then crawl forward
-  pc.update(1 / 60, 0);
+  pc.update(1 / 60, 0, false);
   scene.updateMatrixWorld(true);
   if (f < 60) continue; // wait for the lie-down blend
   pc.hero.model.traverse((o) => {
