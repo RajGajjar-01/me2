@@ -1,19 +1,33 @@
 import * as THREE from 'three';
 import { ExtendedTriangle, type MeshBVH } from 'three-mesh-bvh';
+import { INPUT } from '../constants/input';
+import type { Stance } from '../constants/player';
+import {
+  CAMERA,
+  MANTLE,
+  PLAYER,
+  SPRINT_STRIDE_MULT,
+  STANCES,
+  STRIDE,
+} from '../constants/player';
 import type { InputManager } from '../core/InputManager';
 
 export class PlayerController {
   public camera: THREE.PerspectiveCamera;
   public onGround = false;
   public velocity: THREE.Vector3 = new THREE.Vector3();
-  public stamina = 100;
-  public maxStamina = 100;
+  public stamina: number = PLAYER.MAX_STAMINA;
+  public maxStamina: number = PLAYER.MAX_STAMINA;
   public isSprinting = false;
 
-  public radius = 0.38;
-  public height = 1.35;
-  public eyeOffset = 0.28;
-  public capsulePosition: THREE.Vector3 = new THREE.Vector3(0, 0.4, 28);
+  public radius: number = PLAYER.CAPSULE_RADIUS;
+  public height: number = STANCES.stand.height;
+  public eyeOffset: number = STANCES.stand.eyeOffset;
+  public capsulePosition: THREE.Vector3 = new THREE.Vector3(
+    0,
+    PLAYER.CAPSULE_START_Y,
+    PLAYER.CAPSULE_START_Z,
+  );
 
   private colliderLine: THREE.Line3 = new THREE.Line3();
 
@@ -27,51 +41,41 @@ export class PlayerController {
   private upAxis: THREE.Vector3 = new THREE.Vector3(0, 1, 0);
 
   private pitch = 0;
-  private yaw = 0;
+  public yaw = 0;
 
   private recoverPitch = 0;
   private recoverYaw = 0;
   private recoverHold = 0;
 
-  public recoilRecovery = 0.7;
+  public recoilRecovery: number = PLAYER.RECOIL_RECOVERY;
 
-  private sprintSpeed = 8.6;
-  private jumpForce = 6.8;
-  private gravity = -20.0;
+  private sprintSpeed: number = PLAYER.SPRINT_SPEED;
+  private jumpForce: number = PLAYER.JUMP_FORCE;
+  private gravity: number = PLAYER.GRAVITY;
 
-  private static readonly STANCES = {
-    stand: { height: 1.35, eyeOffset: 0.28, speed: 5.2 },
-    crouch: { height: 0.35, eyeOffset: 0.22, speed: 3.7 },
-    prone: { height: 0.1, eyeOffset: -0.03, speed: 1.3 },
-  } as const;
-  public stance: 'stand' | 'crouch' | 'prone' = 'stand';
+  private static readonly STANCES = STANCES;
+  public stance: Stance = 'stand';
 
-  private static readonly LEAN_OFFSET = 0.38;
-  private static readonly LEAN_ROLL = 0.22;
-  private static readonly LEAN_MARGIN = 0.15;
-  private lean = 0;
+  private static readonly LEAN_OFFSET = PLAYER.LEAN_OFFSET;
+  private static readonly LEAN_ROLL = PLAYER.LEAN_ROLL;
+  private static readonly LEAN_MARGIN = PLAYER.LEAN_MARGIN;
+  public lean = 0;
+  public leanLateral = 0;
   private leanRay: THREE.Ray = new THREE.Ray();
 
-  private bobTimer = 0;
+  public bobTimer = 0;
 
-  private static readonly STRIDE = {
-    stand: 1.6,
-    crouch: 1.3,
-    prone: 0.9,
-  } as const;
+  private static readonly STRIDE = STRIDE;
 
-  private static readonly SPRINT_STRIDE = 1.35;
+  private static readonly SPRINT_STRIDE = SPRINT_STRIDE_MULT;
   private strideAccum = 0;
 
-  public onFootstep?: (
-    stance: 'stand' | 'crouch' | 'prone',
-    isSprinting: boolean,
-  ) => void;
+  public onFootstep?: (stance: Stance, isSprinting: boolean) => void;
 
-  private static readonly MANTLE_MAX_HEIGHT = 1.5;
-  private static readonly MANTLE_DURATION = 0.35;
+  private static readonly MANTLE_MAX_HEIGHT = MANTLE.MAX_HEIGHT;
+  private static readonly MANTLE_DURATION = MANTLE.DURATION_S;
 
-  private static readonly MANTLE_MAX_WORLD_Y = 3.0;
+  private static readonly MANTLE_MAX_WORLD_Y = MANTLE.MAX_WORLD_Y;
   public isMantling = false;
   private mantleTimer = 0;
   private mantleStartPos: THREE.Vector3 = new THREE.Vector3();
@@ -80,12 +84,17 @@ export class PlayerController {
   private mantleLine: THREE.Line3 = new THREE.Line3();
 
   constructor(
-    fov = 75,
+    fov = CAMERA.DEFAULT_FOV,
     aspect = window.innerWidth / window.innerHeight,
     private input: InputManager,
     private bvh: MeshBVH,
   ) {
-    this.camera = new THREE.PerspectiveCamera(fov, aspect, 0.05, 1000);
+    this.camera = new THREE.PerspectiveCamera(
+      fov,
+      aspect,
+      CAMERA.NEAR,
+      CAMERA.FAR,
+    );
     this.updateCapsuleSegment();
     this.syncCamera();
   }
@@ -102,7 +111,10 @@ export class PlayerController {
     this.yaw -= mouse.x;
     this.pitch -= mouse.y;
 
-    if (Math.abs(mouse.x) > 0.0004 || Math.abs(mouse.y) > 0.0004) {
+    if (
+      Math.abs(mouse.x) > PLAYER.MOUSE_RECENTER_EPS ||
+      Math.abs(mouse.y) > PLAYER.MOUSE_RECENTER_EPS
+    ) {
       this.recoverPitch = 0;
       this.recoverYaw = 0;
     }
@@ -110,7 +122,7 @@ export class PlayerController {
     if (this.recoverHold > 0) {
       this.recoverHold -= delta;
     } else if (this.recoverPitch !== 0 || this.recoverYaw !== 0) {
-      const k = 1 - Math.exp(-9 * delta);
+      const k = 1 - Math.exp(-PLAYER.RECOVER_RATE * delta);
       const dp = this.recoverPitch * k;
       const dy = this.recoverYaw * k;
       this.pitch -= dp;
@@ -119,10 +131,13 @@ export class PlayerController {
       this.recoverYaw -= dy;
     }
 
-    this.pitch = Math.max(-Math.PI / 2.1, Math.min(Math.PI / 2.1, this.pitch));
+    this.pitch = Math.max(
+      -Math.PI / PLAYER.PITCH_LIMIT_DIVISOR,
+      Math.min(Math.PI / PLAYER.PITCH_LIMIT_DIVISOR, this.pitch),
+    );
 
-    const wantsCrouch = this.input.isKeyPressed('KeyC');
-    const wantsProne = this.input.isKeyPressed('KeyZ');
+    const wantsCrouch = this.input.isKeyPressed(INPUT.CROUCH_TOGGLE);
+    const wantsProne = this.input.isKeyPressed(INPUT.PRONE_TOGGLE);
     if (!this.isMantling) {
       if (wantsCrouch)
         this.setStance(this.stance === 'crouch' ? 'stand' : 'crouch');
@@ -131,17 +146,18 @@ export class PlayerController {
     }
 
     const target = PlayerController.STANCES[this.stance];
-    const stanceK = 1 - Math.exp(-10 * delta);
+    const stanceK = 1 - Math.exp(-PLAYER.STANCE_BLEND_RATE * delta);
     this.height += (target.height - this.height) * stanceK;
     this.eyeOffset += (target.eyeOffset - this.eyeOffset) * stanceK;
 
     const canLean =
       !this.isMantling && !this.isSprinting && this.stance !== 'prone';
     const leanInput = canLean
-      ? (this.input.isKeyDown('KeyE') ? 1 : 0) -
-        (this.input.isKeyDown('KeyQ') ? 1 : 0)
+      ? (this.input.isKeyDown(INPUT.LEAN_RIGHT) ? 1 : 0) -
+        (this.input.isKeyDown(INPUT.LEAN_LEFT) ? 1 : 0)
       : 0;
-    this.lean += (leanInput - this.lean) * (1 - Math.exp(-14 * delta));
+    this.lean +=
+      (leanInput - this.lean) * (1 - Math.exp(-PLAYER.LEAN_BLEND_RATE * delta));
 
     this.camera.rotation.order = 'YXZ';
     this.camera.rotation.y = this.yaw;
@@ -149,16 +165,21 @@ export class PlayerController {
 
     this.camera.rotation.z = -this.lean * PlayerController.LEAN_ROLL;
 
-    const wantsSprint =
-      this.input.isKeyDown('ShiftLeft') || this.input.isKeyDown('ShiftRight');
-    const hasStamina = this.stamina > 5;
+    const wantsSprint = this.input.isAnyKeyDown(...INPUT.SPRINT);
+    const hasStamina = this.stamina > PLAYER.STAMINA_MIN_TO_SPRINT;
     this.isSprinting =
       wantsSprint && hasStamina && this.onGround && this.stance === 'stand';
 
     if (this.isSprinting) {
-      this.stamina = Math.max(0, this.stamina - 26 * delta);
+      this.stamina = Math.max(
+        0,
+        this.stamina - PLAYER.STAMINA_DRAIN_PER_S * delta,
+      );
     } else {
-      this.stamina = Math.min(this.maxStamina, this.stamina + 20 * delta);
+      this.stamina = Math.min(
+        this.maxStamina,
+        this.stamina + PLAYER.STAMINA_REGEN_PER_S * delta,
+      );
     }
 
     const currentSpeed = this.isSprinting ? this.sprintSpeed : target.speed;
@@ -172,17 +193,17 @@ export class PlayerController {
     this.moveDir.set(0, 0, 0);
 
     if (!this.isMantling) {
-      if (this.input.isAnyKeyDown('KeyW', 'ArrowUp'))
+      if (this.input.isAnyKeyDown(...INPUT.MOVE_FORWARD))
         this.moveDir.add(this.forward);
-      if (this.input.isAnyKeyDown('KeyS', 'ArrowDown'))
+      if (this.input.isAnyKeyDown(...INPUT.MOVE_BACK))
         this.moveDir.sub(this.forward);
-      if (this.input.isAnyKeyDown('KeyD', 'ArrowRight'))
+      if (this.input.isAnyKeyDown(...INPUT.MOVE_RIGHT))
         this.moveDir.add(this.right);
-      if (this.input.isAnyKeyDown('KeyA', 'ArrowLeft'))
+      if (this.input.isAnyKeyDown(...INPUT.MOVE_LEFT))
         this.moveDir.sub(this.right);
     }
 
-    const isMoving = this.moveDir.lengthSq() > 0.001;
+    const isMoving = this.moveDir.lengthSq() > PLAYER.MOVE_EPS_SQ;
     if (isMoving) {
       this.moveDir.normalize();
     }
@@ -190,25 +211,31 @@ export class PlayerController {
     if (this.isMantling) {
       this.velocity.set(0, 0, 0);
     } else {
-      const damping = this.onGround ? 12.0 : 2.5;
+      const damping = this.onGround
+        ? PLAYER.DAMPING_GROUND
+        : PLAYER.DAMPING_AIR;
       this.velocity.x +=
         (this.moveDir.x * currentSpeed - this.velocity.x) * damping * delta;
       this.velocity.z +=
         (this.moveDir.z * currentSpeed - this.velocity.z) * damping * delta;
     }
 
-    const spacePressed = this.input.isKeyPressed('Space');
+    const spacePressed = this.input.isKeyPressed(INPUT.JUMP);
     if (this.stance !== 'stand') {
       if (spacePressed)
         this.setStance(this.stance === 'prone' ? 'crouch' : 'stand');
     } else {
       const wantsMantle =
-        spacePressed || (!this.onGround && this.input.isKeyDown('Space'));
+        spacePressed || (!this.onGround && this.input.isKeyDown(INPUT.JUMP));
 
       if (!this.isMantling && wantsMantle) {
         this.tryStartMantle();
       }
-      if (!this.isMantling && this.onGround && this.input.isKeyDown('Space')) {
+      if (
+        !this.isMantling &&
+        this.onGround &&
+        this.input.isKeyDown(INPUT.JUMP)
+      ) {
         this.velocity.y = this.jumpForce;
         this.onGround = false;
       }
@@ -220,7 +247,7 @@ export class PlayerController {
     if (this.isMantling) {
       this.updateMantle(delta);
     } else {
-      const subSteps = 2;
+      const subSteps = PLAYER.PHYSICS_SUBSTEPS;
       const subDelta = delta / subSteps;
 
       for (let s = 0; s < subSteps; s++) {
@@ -235,7 +262,9 @@ export class PlayerController {
     }
 
     if (isMoving && this.onGround) {
-      this.bobTimer += delta * (this.isSprinting ? 14 : 9);
+      this.bobTimer +=
+        delta *
+        (this.isSprinting ? PLAYER.BOB_RATE_SPRINT : PLAYER.BOB_RATE_WALK);
     } else {
       this.bobTimer = 0;
     }
@@ -280,7 +309,7 @@ export class PlayerController {
           const depth = this.radius - dist;
           this.tempNormal.subVectors(this.point2, this.point1);
 
-          if (this.tempNormal.lengthSq() > 0.000001) {
+          if (this.tempNormal.lengthSq() > PLAYER.NORMAL_EPS_SQ) {
             this.tempNormal.normalize();
           } else {
             tri.getNormal(this.tempNormal);
@@ -289,7 +318,7 @@ export class PlayerController {
           this.capsulePosition.addScaledVector(this.tempNormal, depth);
           this.updateCapsuleSegment();
 
-          if (this.tempNormal.y > 0.45) {
+          if (this.tempNormal.y > PLAYER.GROUND_NORMAL_Y) {
             this.onGround = true;
           }
 
@@ -301,8 +330,8 @@ export class PlayerController {
       },
     });
 
-    if (this.capsulePosition.y < 0.2) {
-      this.capsulePosition.y = 0.2;
+    if (this.capsulePosition.y < PLAYER.COLLISION_GROUND_Y) {
+      this.capsulePosition.y = PLAYER.COLLISION_GROUND_Y;
       this.velocity.y = 0;
       this.onGround = true;
     }
@@ -314,11 +343,11 @@ export class PlayerController {
 
     this.mantleRay.origin.set(
       this.capsulePosition.x,
-      feetY + 1.0,
+      feetY + MANTLE.EYE_PROBE_HEIGHT,
       this.capsulePosition.z,
     );
     this.mantleRay.direction.copy(this.forward);
-    const wallDist = this.radius + 0.55;
+    const wallDist = this.radius + MANTLE.WALL_DIST_BONUS;
     const wallHit = this.bvh.raycastFirst(
       this.mantleRay,
       THREE.DoubleSide,
@@ -327,12 +356,14 @@ export class PlayerController {
     );
     if (!wallHit) return false;
 
-    const lipX = wallHit.point.x + this.forward.x * (this.radius + 0.15);
-    const lipZ = wallHit.point.z + this.forward.z * (this.radius + 0.15);
-    const probeTop = maxGrabY + 0.3;
+    const lipX =
+      wallHit.point.x + this.forward.x * (this.radius + MANTLE.LIP_PUSH);
+    const lipZ =
+      wallHit.point.z + this.forward.z * (this.radius + MANTLE.LIP_PUSH);
+    const probeTop = maxGrabY + MANTLE.PROBE_TOP_BONUS;
     this.mantleRay.origin.set(lipX, probeTop, lipZ);
     this.mantleRay.direction.set(0, -1, 0);
-    const downDist = probeTop - (feetY - 0.3);
+    const downDist = probeTop - (feetY - MANTLE.PROBE_BOTTOM_SLACK);
     const downHit = this.bvh.raycastFirst(
       this.mantleRay,
       THREE.DoubleSide,
@@ -342,8 +373,8 @@ export class PlayerController {
     if (!downHit) return false;
 
     const ledgeY = downHit.point.y;
-    if (ledgeY > maxGrabY + 0.02) return false;
-    if (ledgeY < feetY + 0.15) return false;
+    if (ledgeY > maxGrabY + MANTLE.LEDGE_TOP_SLACK) return false;
+    if (ledgeY < feetY + MANTLE.LEDGE_MIN_LIFT) return false;
 
     if (ledgeY > PlayerController.MANTLE_MAX_WORLD_Y) return false;
 
@@ -370,10 +401,16 @@ export class PlayerController {
     this.mantleTimer += delta;
     const t = Math.min(1, this.mantleTimer / PlayerController.MANTLE_DURATION);
 
-    const upT = Math.min(1, t / 0.6);
+    const upT = Math.min(1, t / MANTLE.UP_END_T);
     const easeUp = 1 - (1 - upT) * (1 - upT);
 
-    const fwdT = Math.max(0, Math.min(1, (t - 0.4) / 0.6));
+    const fwdT = Math.max(
+      0,
+      Math.min(
+        1,
+        (t - MANTLE.FWD_START_T) / (MANTLE.FWD_END_T - MANTLE.FWD_START_T),
+      ),
+    );
     const easeFwd = fwdT * fwdT * (3 - 2 * fwdT);
 
     this.capsulePosition.x =
@@ -394,7 +431,7 @@ export class PlayerController {
     }
   }
 
-  private setStance(next: 'stand' | 'crouch' | 'prone'): void {
+  private setStance(next: Stance): void {
     if (next === this.stance) return;
     const nextHeight = PlayerController.STANCES[next].height;
     if (
@@ -405,7 +442,10 @@ export class PlayerController {
     this.stance = next;
   }
 
-  private capsuleFitsAt(pos: THREE.Vector3, height = this.height): boolean {
+  private capsuleFitsAt(
+    pos: THREE.Vector3,
+    height: number = this.height,
+  ): boolean {
     this.mantleLine.start.copy(pos);
     this.mantleLine.end.copy(pos).setY(pos.y + height);
 
@@ -415,7 +455,7 @@ export class PlayerController {
     this.tempBox.min.addScalar(-this.radius);
     this.tempBox.max.addScalar(this.radius);
 
-    const margin = 0.02;
+    const margin = PLAYER.COLLISION_MARGIN;
     let blocked = false;
     this.bvh.shapecast({
       intersectsBounds: (box) => box.intersectsBox(this.tempBox),
@@ -434,8 +474,8 @@ export class PlayerController {
   private syncCamera(): void {
     const eyeY = this.capsulePosition.y + this.height + this.eyeOffset;
 
-    const bobX = Math.cos(this.bobTimer * 0.5) * 0.022;
-    const bobY = Math.abs(Math.sin(this.bobTimer)) * 0.032;
+    const bobX = Math.cos(this.bobTimer * 0.5) * PLAYER.BOB_AMP_X;
+    const bobY = Math.abs(Math.sin(this.bobTimer)) * PLAYER.BOB_AMP_Y;
 
     this.camera.position.set(
       this.capsulePosition.x + (this.bobTimer > 0 ? bobX : 0),
@@ -443,7 +483,9 @@ export class PlayerController {
       this.capsulePosition.z,
     );
 
-    if (Math.abs(this.lean) > 0.001) {
+    this.leanLateral = 0;
+
+    if (Math.abs(this.lean) > PLAYER.LEAN_ACTIVE_EPS) {
       let lateral = this.lean * PlayerController.LEAN_OFFSET;
       const dir = Math.sign(lateral);
 
@@ -464,20 +506,21 @@ export class PlayerController {
         lateral = dir * Math.min(Math.abs(lateral), allowed);
       }
 
+      this.leanLateral = lateral;
       this.camera.position.addScaledVector(this.right, lateral);
-      this.camera.position.y -= Math.abs(this.lean) * 0.03;
+      this.camera.position.y -= Math.abs(this.lean) * PLAYER.LEAN_DROP_PER_LEAN;
     }
   }
 
   public applyRecoil(pitchDelta: number, yawDelta: number): void {
     this.pitch = Math.max(
-      -Math.PI / 2.1,
-      Math.min(Math.PI / 2.1, this.pitch + pitchDelta),
+      -Math.PI / PLAYER.PITCH_LIMIT_DIVISOR,
+      Math.min(Math.PI / PLAYER.PITCH_LIMIT_DIVISOR, this.pitch + pitchDelta),
     );
     this.yaw += yawDelta;
     this.recoverPitch += pitchDelta * this.recoilRecovery;
     this.recoverYaw += yawDelta * this.recoilRecovery;
-    this.recoverHold = 0.09;
+    this.recoverHold = PLAYER.RECOVER_HOLD_S;
   }
 
   public getSpeed(): number {

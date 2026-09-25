@@ -1,7 +1,12 @@
 import * as THREE from 'three';
+import { AUDIO } from './constants/audio';
+import { CAMERA, PLAYER } from './constants/player';
+import { WEAPONS } from './constants/weapons';
+import { WORLD } from './constants/world';
 import { InputManager } from './core/InputManager';
 import { GameRenderer } from './core/Renderer';
 import { OutdoorRange } from './environment/OutdoorRange';
+import { PlayerBody } from './player/PlayerBody';
 import { PlayerController } from './player/PlayerController';
 import { CombatHUD } from './ui/CombatHUD';
 import { TacticalTelemetry } from './ui/TacticalTelemetry';
@@ -13,6 +18,7 @@ class GameApp {
   private range: OutdoorRange;
   private player!: PlayerController;
   private weapons!: WeaponManager;
+  private playerBody!: PlayerBody;
   private telemetry: TacticalTelemetry;
   private combatHud!: CombatHUD;
   private clock: THREE.Clock = new THREE.Clock();
@@ -66,13 +72,14 @@ class GameApp {
       });
 
       this.player = new PlayerController(
-        75,
+        CAMERA.DEFAULT_FOV,
         window.innerWidth / window.innerHeight,
         this.input,
         this.range.bvh,
       );
 
       this.renderer.scene.add(this.player.camera);
+      this.playerBody = new PlayerBody(this.renderer.scene, this.player);
 
       this.weapons = new WeaponManager(
         this.player.camera,
@@ -87,13 +94,16 @@ class GameApp {
       this.player.onFootstep = (stance, isSprinting) => {
         const gain =
           stance === 'prone'
-            ? 0.12
+            ? AUDIO.FOOTSTEP_GAIN_PRONE
             : stance === 'crouch'
-              ? 0.3
+              ? AUDIO.FOOTSTEP_GAIN_CROUCH
               : isSprinting
-                ? 0.75
-                : 0.55;
-        this.weapons.soundEngine.playFootstep(gain, isSprinting ? 1.12 : 1.0);
+                ? AUDIO.FOOTSTEP_GAIN_SPRINT
+                : AUDIO.FOOTSTEP_GAIN_WALK;
+        this.weapons.soundEngine.playFootstep(
+          gain,
+          isSprinting ? AUDIO.FOOTSTEP_RATE_SPRINT : AUDIO.FOOTSTEP_RATE_WALK,
+        );
       };
       await this.weapons.loadAssets((status) => {
         this.loaderStatus.textContent = status;
@@ -192,17 +202,17 @@ class GameApp {
   private animate(): void {
     requestAnimationFrame(this.animate);
 
-    const delta = Math.min(this.clock.getDelta(), 0.05);
+    const delta = Math.min(this.clock.getDelta(), WORLD.FRAME_DELTA_MAX_S);
 
     if (this.isLoaded && this.player) {
       if (this.input.isLocked) {
         if (this.weapons) {
           this.weapons.stanceKickMult =
             this.player.stance === 'prone'
-              ? 0.5
+              ? WEAPONS.STANCE_KICK_PRONE
               : this.player.stance === 'crouch'
-                ? 0.75
-                : 1;
+                ? WEAPONS.STANCE_KICK_CROUCH
+                : WEAPONS.STANCE_KICK_STAND;
           this.weapons.update(
             delta,
             this.player.getSpeed(),
@@ -210,6 +220,7 @@ class GameApp {
           );
         }
         this.player.update(delta);
+        this.playerBody.update();
       }
 
       this.updateHUD(delta);
@@ -228,7 +239,7 @@ class GameApp {
 
     this.frameCount++;
     this.fpsTime += delta;
-    if (this.fpsTime >= 0.35) {
+    if (this.fpsTime >= WORLD.HUD_FPS_WINDOW_S) {
       const currentFps = Math.round(this.frameCount / this.fpsTime);
       this.fpsCounter.textContent = `${currentFps}`;
       this.frameCount = 0;
@@ -249,7 +260,7 @@ class GameApp {
       this.postureText.textContent = 'CROUCH';
     } else if (this.player.isSprinting) {
       this.postureText.textContent = 'SPRINT';
-    } else if (speed > 0.5) {
+    } else if (speed > PLAYER.SPEED_WALK_LABEL_THRESHOLD) {
       this.postureText.textContent = 'WALK';
     } else {
       this.postureText.textContent = 'STAND';

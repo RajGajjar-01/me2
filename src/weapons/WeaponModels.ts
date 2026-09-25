@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { clone as cloneSkinned } from 'three/examples/jsm/utils/SkeletonUtils.js';
+import { HAND_MODEL_PATH } from '../constants/assets';
+import { MUZZLE_FLASH } from '../constants/effects';
 import { TextureGenerator } from '../utils/TextureGenerator';
+
+export { HAND_MODEL_PATH };
 
 export interface WeaponRig {
   root: THREE.Group;
@@ -17,8 +21,6 @@ export interface HandAsset {
   scene: THREE.Object3D;
   clip?: THREE.AnimationClip;
 }
-
-export const HAND_MODEL_PATH = '/models/hands/rigged_hand.glb';
 
 export class WeaponModels {
   private static akSteelMat = new THREE.MeshStandardMaterial({
@@ -83,7 +85,7 @@ export class WeaponModels {
     akScene.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) {
         const m = child as THREE.Mesh;
-        m.castShadow = true;
+        m.castShadow = false;
         m.receiveShadow = true;
         if (m.material) {
           const mat = m.material as THREE.MeshStandardMaterial;
@@ -109,15 +111,15 @@ export class WeaponModels {
         rightArm,
         handAsset,
         false,
-        new THREE.Vector3(0.028, -0.09, -0.386),
+        new THREE.Vector3(0.03, -0.14, -0.34),
         new THREE.Euler(0, Math.PI / 2, 0.25),
       );
       this.attachHand(
         leftArm,
         handAsset,
         true,
-        new THREE.Vector3(-0.03, -0.062, -0.64),
-        new THREE.Euler(0, -Math.PI / 2, -0.25),
+        new THREE.Vector3(0.0, -0.085, -0.6),
+        new THREE.Euler(0, -Math.PI / 2 - 0.1, -0.55),
       );
     } else {
       const arms = this.createAKArms();
@@ -157,7 +159,7 @@ export class WeaponModels {
       }
       if ((child as THREE.Mesh).isMesh) {
         const m = child as THREE.Mesh;
-        m.castShadow = true;
+        m.castShadow = false;
         m.receiveShadow = true;
         if (m.material) {
           const mat = m.material as THREE.MeshStandardMaterial;
@@ -227,7 +229,7 @@ export class WeaponModels {
     shotgunScene.traverse((child) => {
       const m = child as THREE.Mesh;
       if (!m.isMesh) return;
-      m.castShadow = true;
+      m.castShadow = false;
       m.receiveShadow = true;
       const mat = m.material as THREE.MeshStandardMaterial;
       if (mat) {
@@ -563,7 +565,7 @@ export class WeaponModels {
       const m = child as THREE.Mesh;
       if (m.isMesh) {
         m.material = this.handSkinMat;
-        m.castShadow = true;
+        m.castShadow = false;
         m.receiveShadow = true;
       }
     });
@@ -693,7 +695,9 @@ export class WeaponModels {
     const muzzleFlash = new THREE.Group();
     muzzleFlash.position.copy(muzzlePos);
 
-    const flashTex = TextureGenerator.createMuzzleFlashTexture(256);
+    const flashTex = TextureGenerator.createMuzzleFlashTexture(
+      MUZZLE_FLASH.FLASH_TEXTURE_RIFLE,
+    );
     const flashMat = new THREE.MeshBasicMaterial({
       map: flashTex,
       transparent: true,
@@ -703,7 +707,10 @@ export class WeaponModels {
       side: THREE.DoubleSide,
     });
 
-    const p1Geo = new THREE.PlaneGeometry(0.34, 0.34);
+    const p1Geo = new THREE.PlaneGeometry(
+      MUZZLE_FLASH.RIFLE_PLANE,
+      MUZZLE_FLASH.RIFLE_PLANE,
+    );
     const p1 = new THREE.Mesh(p1Geo, flashMat);
     muzzleFlash.add(p1);
 
@@ -711,18 +718,26 @@ export class WeaponModels {
     p2.rotation.z = Math.PI / 3;
     muzzleFlash.add(p2);
 
-    const coneGeo = new THREE.PlaneGeometry(0.38, 0.24);
+    const coneGeo = new THREE.PlaneGeometry(
+      MUZZLE_FLASH.RIFLE_CONE_W,
+      MUZZLE_FLASH.RIFLE_CONE_H,
+    );
     const p3 = new THREE.Mesh(coneGeo, flashMat);
     p3.rotation.y = Math.PI / 2;
-    p3.position.z = -0.07;
+    p3.position.z = MUZZLE_FLASH.RIFLE_CONE_Z;
     muzzleFlash.add(p3);
 
     const p4 = new THREE.Mesh(coneGeo, flashMat);
     p4.rotation.x = Math.PI / 2;
-    p4.position.z = -0.07;
+    p4.position.z = MUZZLE_FLASH.RIFLE_CONE_Z;
     muzzleFlash.add(p4);
 
-    const flashLight = new THREE.PointLight(0xffb74d, 0, 12, 2);
+    const flashLight = new THREE.PointLight(
+      MUZZLE_FLASH.LIGHT_RIFLE_COLOR,
+      0,
+      MUZZLE_FLASH.LIGHT_RIFLE_DISTANCE,
+      2,
+    );
     muzzleFlash.add(flashLight);
 
     muzzleFlash.visible = false;
@@ -736,7 +751,9 @@ export class WeaponModels {
     const muzzleFlash = new THREE.Group();
     muzzleFlash.position.copy(muzzlePos);
 
-    const flashTex = TextureGenerator.createMuzzleFlashTexture(128);
+    const flashTex = TextureGenerator.createMuzzleFlashTexture(
+      MUZZLE_FLASH.FLASH_TEXTURE_PISTOL,
+    );
     const flashMat = new THREE.MeshBasicMaterial({
       map: flashTex,
       transparent: true,
@@ -746,7 +763,10 @@ export class WeaponModels {
       side: THREE.DoubleSide,
     });
 
-    const pGeo = new THREE.PlaneGeometry(0.12, 0.12);
+    const pGeo = new THREE.PlaneGeometry(
+      MUZZLE_FLASH.PISTOL_PLANE,
+      MUZZLE_FLASH.PISTOL_PLANE,
+    );
     const p1 = new THREE.Mesh(pGeo, flashMat);
     muzzleFlash.add(p1);
 
@@ -754,7 +774,12 @@ export class WeaponModels {
     p2.rotation.z = Math.PI / 4;
     muzzleFlash.add(p2);
 
-    const flashLight = new THREE.PointLight(0xff9944, 0, 5, 2);
+    const flashLight = new THREE.PointLight(
+      MUZZLE_FLASH.LIGHT_PISTOL_COLOR,
+      0,
+      MUZZLE_FLASH.LIGHT_PISTOL_DISTANCE,
+      2,
+    );
     muzzleFlash.add(flashLight);
 
     muzzleFlash.visible = false;

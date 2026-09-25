@@ -1,18 +1,15 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { MODELS, SOUNDS } from '../assets';
 import { SoundEngine } from '../audio/SoundEngine';
+import { HAND_MODEL_PATH, MODELS, SOUNDS } from '../constants/assets';
+import { INPUT } from '../constants/input';
+import { RELOAD_CUES, WEAPON_DEFS, WEAPONS } from '../constants/weapons';
 import type { InputManager } from '../core/InputManager';
 import { BulletTracerManager } from '../effects/BulletTracer';
 import { DecalManager } from '../effects/DecalManager';
 import { DummyManager } from '../targets/DummyManager';
 import { TargetManager } from '../targets/TargetManager';
-import {
-  HAND_MODEL_PATH,
-  type HandAsset,
-  WeaponModels,
-  type WeaponRig,
-} from './WeaponModels';
+import { type HandAsset, WeaponModels, type WeaponRig } from './WeaponModels';
 
 export interface WeaponData {
   name: string;
@@ -58,76 +55,23 @@ export class WeaponManager {
   public totalShots = 0;
   public totalHits = 0;
 
-  private weapons: WeaponData[] = [
-    {
-      name: 'AK-47',
-      fireMode: 'AUTO // 7.62x39mm',
-      isAuto: true,
-      fireRate: 10.0,
-      magSize: 30,
-      currentAmmo: 30,
-      reserveAmmo: 120,
-      damage: 48,
-      idleOffset: new THREE.Vector3(0.25, -0.285, -0.19),
-
-      adsOffset: new THREE.Vector3(0.0, -0.125, -0.03),
-      recoilForce: {
-        posZ: 0.052,
-        rotX: 0.08,
-        camPitch: 0.026,
-        camYaw: 0.012,
-        spray: 'ak',
-      },
-      reloadTime: 2.0,
-      reloadStyle: 'mag',
-    },
-    {
-      name: 'TACTICAL GHOST',
-      fireMode: 'SEMI // 9x19mm SUPPRESSED',
-      isAuto: false,
-      fireRate: 7.0,
-      magSize: 15,
-      currentAmmo: 15,
-      reserveAmmo: 60,
-      damage: 36,
-      idleOffset: new THREE.Vector3(0.15, -0.125, -0.24),
-
-      adsOffset: new THREE.Vector3(0.0, -0.055, -0.18),
-      recoilForce: {
-        posZ: 0.038,
-        rotX: 0.06,
-        camPitch: 0.014,
-        camYaw: 0.005,
-        spray: 'simple',
-      },
-      reloadTime: 1.9,
-      reloadStyle: 'mag',
-    },
-    {
-      name: 'BREACHER 12G',
-      fireMode: 'PUMP // 12 GAUGE BUCK',
-      isAuto: false,
-      fireRate: 1.2,
-      magSize: 6,
-      currentAmmo: 6,
-      reserveAmmo: 30,
-      damage: 22,
-      idleOffset: new THREE.Vector3(0.2, -0.26, -0.24),
-
-      adsOffset: new THREE.Vector3(0.0, -0.075, -0.1),
-      recoilForce: {
-        posZ: 0.085,
-        rotX: 0.14,
-        camPitch: 0.085,
-        camYaw: 0.018,
-        spray: 'simple',
-      },
-      reloadTime: 2.8,
-      reloadStyle: 'shells',
-      pellets: 8,
-      pelletSpread: 0.055,
-    },
-  ];
+  private weapons: WeaponData[] = WEAPON_DEFS.map((def) => ({
+    name: def.name,
+    fireMode: def.fireMode,
+    isAuto: def.isAuto,
+    fireRate: def.fireRate,
+    magSize: def.magSize,
+    currentAmmo: def.startAmmo,
+    reserveAmmo: def.reserveAmmo,
+    damage: def.damage,
+    idleOffset: new THREE.Vector3(...def.idleOffset),
+    adsOffset: new THREE.Vector3(...def.adsOffset),
+    recoilForce: { ...def.recoilForce },
+    reloadTime: def.reloadTime,
+    reloadStyle: def.reloadStyle,
+    ...('pellets' in def ? { pellets: def.pellets } : {}),
+    ...('pelletSpread' in def ? { pelletSpread: def.pelletSpread } : {}),
+  }));
 
   private weaponRigs: WeaponRig[] = [];
   public soundEngine: SoundEngine;
@@ -197,7 +141,7 @@ export class WeaponManager {
   public onRecoil?: (pitchDelta: number, yawDelta: number) => void;
 
   private burstShot = 0;
-  private static readonly BURST_RESET = 0.35;
+  private static readonly BURST_RESET = WEAPONS.BURST_RESET_S;
 
   constructor(
     private camera: THREE.PerspectiveCamera,
@@ -209,7 +153,9 @@ export class WeaponManager {
     (this.raycaster as any).firstHitOnly = true;
 
     this.soundEngine = new SoundEngine();
-    this.tracerManager = new BulletTracerManager(scene);
+    this.tracerManager = new BulletTracerManager(scene, () =>
+      this.soundEngine.playShellDrop(),
+    );
     this.decalManager = new DecalManager(scene);
     this.targetManager = new TargetManager(scene, this.soundEngine);
     this.dummyManager = new DummyManager(scene, this.soundEngine);
@@ -339,8 +285,8 @@ export class WeaponManager {
     this.pendingWeaponIndex = index;
 
     this.swapState = 'holster';
-    this.swapTimer = 0.12;
-    this.swapDuration = 0.12;
+    this.swapTimer = WEAPONS.SWAP_HOLSTER_S;
+    this.swapDuration = WEAPONS.SWAP_HOLSTER_S;
 
     if (playSound) {
     }
@@ -350,10 +296,10 @@ export class WeaponManager {
     const weapon = this.weapons[this.currentWeaponIndex];
     const rig = this.weaponRigs[this.currentWeaponIndex];
 
-    if (this.input.isKeyPressed('Digit1')) this.selectWeapon(0);
-    if (this.input.isKeyPressed('Digit2')) this.selectWeapon(1);
-    if (this.input.isKeyPressed('Digit3')) this.selectWeapon(2);
-    if (this.input.isKeyPressed('KeyX')) {
+    if (this.input.isKeyPressed(INPUT.SLOT_1)) this.selectWeapon(0);
+    if (this.input.isKeyPressed(INPUT.SLOT_2)) this.selectWeapon(1);
+    if (this.input.isKeyPressed(INPUT.SLOT_3)) this.selectWeapon(2);
+    if (this.input.isKeyPressed(INPUT.QUICK_SWAP)) {
       this.selectWeapon(
         this.previousWeaponIndex === this.currentWeaponIndex
           ? (this.currentWeaponIndex + 1) % this.weapons.length
@@ -369,20 +315,22 @@ export class WeaponManager {
     }
 
     this.isAiming =
-      this.input.isMouseDown(2) && !this.isReloading && !this.isSwapping;
+      this.input.isMouseDown(INPUT.ADS_MOUSE_BUTTON) &&
+      !this.isReloading &&
+      !this.isSwapping;
     this.targetOffset.copy(
       this.isAiming ? weapon.adsOffset : weapon.idleOffset,
     );
 
-    const targetFov = this.isAiming ? 48 : 75;
+    const targetFov = this.isAiming ? WEAPONS.ADS_FOV : WEAPONS.HIP_FOV;
     this.camera.fov = THREE.MathUtils.lerp(
       this.camera.fov,
       targetFov,
-      14 * delta,
+      WEAPONS.ADS_LERP_RATE * delta,
     );
     this.camera.updateProjectionMatrix();
 
-    const isFireDown = this.input.isMouseDown(0);
+    const isFireDown = this.input.isMouseDown(INPUT.FIRE_MOUSE_BUTTON);
     const now = performance.now() / 1000;
     const fireInterval = 1.0 / weapon.fireRate;
 
@@ -400,7 +348,7 @@ export class WeaponManager {
     }
 
     if (
-      this.input.isKeyPressed('KeyR') &&
+      this.input.isKeyPressed(INPUT.RELOAD) &&
       !this.isReloading &&
       !this.isSwapping
     ) {
@@ -447,8 +395,8 @@ export class WeaponManager {
         this.weaponRigs[this.currentWeaponIndex].root.visible = true;
 
         this.swapState = 'equip';
-        this.swapTimer = 0.36;
-        this.swapDuration = 0.36;
+        this.swapTimer = WEAPONS.SWAP_EQUIP_S;
+        this.swapDuration = WEAPONS.SWAP_EQUIP_S;
 
         this.soundEngine.playWeaponEquip(this.currentWeaponIndex);
         this.notifyAmmo();
@@ -456,7 +404,10 @@ export class WeaponManager {
         const hud = document.getElementById('hud');
         if (hud) {
           hud.classList.add('spread-fire');
-          setTimeout(() => hud.classList.remove('spread-fire'), 120);
+          setTimeout(
+            () => hud.classList.remove('spread-fire'),
+            WEAPONS.HUD_SPREAD_FIRE_MS,
+          );
         }
       }
     } else if (this.swapState === 'equip') {
@@ -485,8 +436,8 @@ export class WeaponManager {
       }
     }
 
-    const stiffness = 240;
-    const damping = 20;
+    const stiffness = WEAPONS.RECOIL_STIFFNESS;
+    const damping = WEAPONS.RECOIL_DAMPING;
 
     this.recoilVel.x +=
       (-this.recoilPos.x * stiffness - this.recoilVel.x * damping) * delta;
@@ -509,23 +460,29 @@ export class WeaponManager {
     this.cameraRecoilPitch = THREE.MathUtils.lerp(
       this.cameraRecoilPitch,
       0,
-      16 * delta,
+      WEAPONS.CAMERA_RECOIL_LERP_RATE * delta,
     );
     this.cameraRecoilYaw = THREE.MathUtils.lerp(
       this.cameraRecoilYaw,
       0,
-      16 * delta,
+      WEAPONS.CAMERA_RECOIL_LERP_RATE * delta,
     );
 
-    if (playerSpeed > 0.5 && onGround && !this.isAiming) {
-      this.bobTimer += delta * 11.0;
+    if (
+      playerSpeed > WEAPONS.BOB_MOVE_THRESHOLD &&
+      onGround &&
+      !this.isAiming
+    ) {
+      this.bobTimer += delta * WEAPONS.BOB_RATE;
     } else {
       this.bobTimer = 0;
     }
     const bobX =
-      Math.cos(this.bobTimer * 0.5) * (this.isAiming ? 0.001 : 0.012);
+      Math.cos(this.bobTimer * 0.5) *
+      (this.isAiming ? WEAPONS.BOB_X_ADS : WEAPONS.BOB_X_HIP);
     const bobY =
-      Math.abs(Math.sin(this.bobTimer)) * (this.isAiming ? 0.002 : 0.016);
+      Math.abs(Math.sin(this.bobTimer)) *
+      (this.isAiming ? WEAPONS.BOB_Y_ADS : WEAPONS.BOB_Y_HIP);
 
     if (this.flashTimer > 0) {
       this.flashTimer -= delta;
@@ -538,7 +495,9 @@ export class WeaponManager {
       }
     }
 
-    const lerpSpeed = this.isAiming ? 20 : 12;
+    const lerpSpeed = this.isAiming
+      ? WEAPONS.VIEWMODEL_LERP_ADS
+      : WEAPONS.VIEWMODEL_LERP_HIP;
     this.currentOffset.lerp(this.targetOffset, lerpSpeed * delta);
 
     this.viewmodelContainer.position.set(
@@ -602,29 +561,50 @@ export class WeaponManager {
       this.soundEngine.playPistolShot();
     }
 
-    const kickMult = (this.isAiming ? 0.75 : 1.0) * this.stanceKickMult;
+    const kickMult =
+      (this.isAiming ? WEAPONS.KICK_ADS_MULT : WEAPONS.KICK_HIP_MULT) *
+      this.stanceKickMult;
     const n = this.burstShot;
 
-    const escalate = 1 + Math.min(n, 9) * 0.11;
+    const escalate =
+      1 + Math.min(n, WEAPONS.ESCALATE_MAX_SHOTS) * WEAPONS.ESCALATE_PER_SHOT;
 
-    this.recoilVel.z += weapon.recoilForce.posZ * 4.4 * kickMult * escalate;
-    this.recoilVel.y += weapon.recoilForce.posZ * 1.3 * kickMult * escalate;
-    this.recoilRotVel.x += weapon.recoilForce.rotX * 5.2 * kickMult * escalate;
-    this.recoilRotVel.z += (Math.random() - 0.5) * 0.08 * kickMult;
-    this.recoilRotVel.y += (Math.random() - 0.5) * 0.05 * kickMult;
+    this.recoilVel.z +=
+      weapon.recoilForce.posZ * WEAPONS.POS_Z_TO_VEL * kickMult * escalate;
+    this.recoilVel.y +=
+      weapon.recoilForce.posZ * WEAPONS.POS_Z_TO_LIFT * kickMult * escalate;
+    this.recoilRotVel.x +=
+      weapon.recoilForce.rotX * WEAPONS.ROT_X_TO_VEL * kickMult * escalate;
+    this.recoilRotVel.z +=
+      (Math.random() - 0.5) * WEAPONS.ROLL_RANDOM * kickMult;
+    this.recoilRotVel.y +=
+      (Math.random() - 0.5) * WEAPONS.YAW_RANDOM * kickMult;
 
     const rc = weapon.recoilForce;
-    const adsMult = (this.isAiming ? 0.55 : 1.0) * this.stanceKickMult;
+    const adsMult =
+      (this.isAiming ? WEAPONS.ADS_PITCH_MULT : WEAPONS.KICK_HIP_MULT) *
+      this.stanceKickMult;
     let pitchKick =
-      rc.camPitch * escalate * adsMult * (0.88 + Math.random() * 0.24);
+      rc.camPitch *
+      escalate *
+      adsMult *
+      (WEAPONS.PITCH_RANDOM_MIN + Math.random() * WEAPONS.PITCH_RANDOM_SPAN);
     let yawKick: number;
 
     if (rc.spray === 'ak') {
       const snake =
-        n < 5 ? (Math.random() - 0.5) * 0.5 : Math.sin((n - 5) * 0.85) * 1.9;
-      yawKick = rc.camYaw * snake * adsMult * (0.85 + Math.random() * 0.3);
+        n < WEAPONS.AK_SNAKE_START
+          ? (Math.random() - 0.5) * WEAPONS.AK_SNAKE_RANDOM
+          : Math.sin((n - WEAPONS.AK_SNAKE_START) * WEAPONS.AK_SNAKE_FREQ) *
+            WEAPONS.AK_SNAKE_AMP;
+      yawKick =
+        rc.camYaw *
+        snake *
+        adsMult *
+        (WEAPONS.PITCH_RANDOM_MIN + Math.random() * WEAPONS.PITCH_RANDOM_SPAN);
 
-      if (n >= 6) pitchKick *= 0.78;
+      if (n >= WEAPONS.AK_PITCH_DAMP_FROM_SHOT)
+        pitchKick *= WEAPONS.AK_PITCH_DAMP_MULT;
     } else {
       yawKick = rc.camYaw * (Math.random() - 0.5) * 2 * adsMult;
     }
@@ -636,16 +616,17 @@ export class WeaponManager {
     this.cameraRecoilYaw += yawKick;
 
     if (rig.slideOrBolt) {
-      rig.slideOrBolt.position.z = 0.038;
+      rig.slideOrBolt.position.z = WEAPONS.SLIDE_KICK_Z;
     }
 
     rig.muzzleFlash.visible = true;
     rig.muzzleFlash.rotation.z = Math.random() * Math.PI * 2;
     const flashScale =
-      (this.isAiming ? 0.72 : 1.05) * (0.9 + Math.random() * 0.3);
+      (this.isAiming ? WEAPONS.FLASH_ADS_SCALE : WEAPONS.FLASH_HIP_SCALE) *
+      (WEAPONS.FLASH_RANDOM_MIN + Math.random() * WEAPONS.FLASH_RANDOM_SPAN);
     rig.muzzleFlash.scale.set(flashScale, flashScale, flashScale);
-    rig.flashLight.intensity = 55;
-    this.flashTimer = 0.042;
+    rig.flashLight.intensity = WEAPONS.FLASH_LIGHT_INTENSITY;
+    this.flashTimer = WEAPONS.FLASH_DURATION_S;
 
     rig.muzzleFlash.getWorldPosition(this._muzzleWorld);
     this.viewmodelContainer.localToWorld(
@@ -686,18 +667,23 @@ export class WeaponManager {
 
     if (this.onRecoilTelemetry) {
       const spreadX =
-        (Math.random() - 0.5) * (this.isAiming ? 0.25 : 0.8) +
-        this.cameraRecoilYaw * 12;
+        (Math.random() - 0.5) *
+          (this.isAiming ? WEAPONS.SPREAD_X_ADS : WEAPONS.SPREAD_X_HIP) +
+        this.cameraRecoilYaw * WEAPONS.SPREAD_YAW_TO_TELEMETRY;
       const spreadY =
-        (Math.random() - 0.2) * (this.isAiming ? 0.35 : 1.1) +
-        this.cameraRecoilPitch * 16;
+        (Math.random() - 0.2) *
+          (this.isAiming ? WEAPONS.SPREAD_Y_ADS : WEAPONS.SPREAD_Y_HIP) +
+        this.cameraRecoilPitch * WEAPONS.SPREAD_PITCH_TO_TELEMETRY;
       this.onRecoilTelemetry(spreadX, spreadY, hasHit);
     }
 
     const hud = document.getElementById('hud');
     if (hud) {
       hud.classList.add('spread-fire');
-      setTimeout(() => hud.classList.remove('spread-fire'), 75);
+      setTimeout(
+        () => hud.classList.remove('spread-fire'),
+        WEAPONS.HUD_SPREAD_SHOT_MS,
+      );
     }
 
     if (this.onStatsUpdate) {
@@ -754,7 +740,7 @@ export class WeaponManager {
     this._rayDir.copy(this.raycaster.ray.direction);
     this._targetPoint
       .copy(this.camera.position)
-      .addScaledVector(this._rayDir, 80);
+      .addScaledVector(this._rayDir, WEAPONS.MISS_RAY_DISTANCE);
     this.tracerManager.spawnTracer(this._muzzleWorld, this._targetPoint);
     return { hit: false, headshot: false };
   }
@@ -774,7 +760,7 @@ export class WeaponManager {
       () => {
         hm.classList.add('hitmarker-hidden');
       },
-      isHeadshot ? 180 : 120,
+      isHeadshot ? WEAPONS.HITMARKER_HEADSHOT_MS : WEAPONS.HITMARKER_MS,
     );
   }
 
@@ -1002,35 +988,40 @@ export class WeaponManager {
       const cues: { t: number; play: () => void }[] = [];
       for (let i = 0; i < missing; i++) {
         cues.push({
-          t: 0.2 + (0.6 * i) / Math.max(1, missing),
+          t:
+            RELOAD_CUES.SHELL_CUE_BASE +
+            (RELOAD_CUES.SHELL_CUE_STEP * i) / Math.max(1, missing),
           play: () => snd.playShellInsert(),
         });
       }
-      cues.push({ t: 0.88, play: () => snd.playPumpRack() });
+      cues.push({
+        t: RELOAD_CUES.SHELLS_RACK_T,
+        play: () => snd.playPumpRack(),
+      });
       this.reloadCues = cues;
     } else {
       this.reloadCues = [
         {
-          t: 0.02,
+          t: RELOAD_CUES.MAG_RELEASE_T,
           play: () => {
             if (snd.playReloadCycle()) return;
             snd.playMagRelease();
           },
         },
         {
-          t: 0.2,
+          t: RELOAD_CUES.SHELL_CUE_BASE,
           play: () => {
             if (!snd.hasSample('reload')) snd.playMagOut();
           },
         },
         {
-          t: 0.6,
+          t: RELOAD_CUES.MAG_IN_T,
           play: () => {
             if (!snd.hasSample('reload')) snd.playMagIn();
           },
         },
         {
-          t: 0.82,
+          t: RELOAD_CUES.BOLT_RACK_T,
           play: () => {
             if (!snd.hasSample('reload')) snd.playBoltRack();
           },

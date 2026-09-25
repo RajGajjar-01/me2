@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { WORLD } from '../constants/world';
 
 export class GameRenderer {
   public renderer: THREE.WebGLRenderer;
@@ -7,7 +8,7 @@ export class GameRenderer {
   constructor(canvas: HTMLCanvasElement) {
     this.scene = new THREE.Scene();
 
-    this.scene.fog = new THREE.FogExp2(0xa5c7eb, 0.0035);
+    this.scene.fog = new THREE.FogExp2(WORLD.FOG_COLOR, WORLD.FOG_DENSITY);
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -19,19 +20,23 @@ export class GameRenderer {
 
     this.renderer.setSize(window.innerWidth, window.innerHeight);
 
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, WORLD.PIXEL_RATIO_MAX),
+    );
 
     this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = WORLD.TONE_MAPPING_EXPOSURE;
 
     window.addEventListener('resize', this.onWindowResize.bind(this));
   }
 
   private onWindowResize(): void {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.renderer.setPixelRatio(
+      Math.min(window.devicePixelRatio, WORLD.PIXEL_RATIO_MAX),
+    );
   }
 
   public compile(camera: THREE.Camera): void {

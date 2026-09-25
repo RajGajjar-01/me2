@@ -173,8 +173,8 @@ export class OutdoorRange {
     this.sunLight.position.copy(sun).multiplyScalar(60);
     this.sunLight.castShadow = true;
 
-    this.sunLight.shadow.mapSize.width = 1024;
-    this.sunLight.shadow.mapSize.height = 1024;
+    this.sunLight.shadow.mapSize.width = 4096;
+    this.sunLight.shadow.mapSize.height = 4096;
     this.sunLight.shadow.camera.near = 10;
     this.sunLight.shadow.camera.far = 130;
     const d = 42;
@@ -183,6 +183,7 @@ export class OutdoorRange {
     this.sunLight.shadow.camera.top = d;
     this.sunLight.shadow.camera.bottom = -d;
     this.sunLight.shadow.bias = -0.0004;
+    this.sunLight.shadow.normalBias = 0.02;
 
     this.scene.add(this.sunLight);
     this.scene.add(this.sunLight.target);
