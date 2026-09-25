@@ -22,12 +22,6 @@ import {
 const BLANK_PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
-// First-person: body stays in the shadow pass but draws nothing on screen.
-const HIDDEN_MAT = new THREE.MeshBasicMaterial({
-  colorWrite: false,
-  depthWrite: false,
-});
-
 export interface HeroAssets {
   template: THREE.Group;
   clips: Record<HeroClip, THREE.AnimationClip>;
@@ -142,20 +136,9 @@ export class Hero {
   public readonly actions: Record<HeroClip, THREE.AnimationAction>;
   public current: THREE.AnimationAction | null = null;
 
-  private meshes: THREE.Mesh[] = [];
-  private ownMaterials: THREE.Material[] = [];
-  private hidden = false;
-
   constructor(assets: HeroAssets) {
     this.model = SkeletonUtils.clone(assets.template);
     this.root.add(this.model);
-    this.model.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) {
-        this.meshes.push(m);
-        this.ownMaterials.push(m.material as THREE.Material);
-      }
-    });
 
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = {} as Record<HeroClip, THREE.AnimationAction>;
@@ -197,15 +180,6 @@ export class Hero {
   public isRunning(name: HeroClip): boolean {
     const a = this.actions[name];
     return a === this.current && a.isRunning();
-  }
-
-  /** Hide from the camera but keep casting the shadow (first-person). */
-  public setHidden(hidden: boolean): void {
-    if (hidden === this.hidden) return;
-    this.hidden = hidden;
-    this.meshes.forEach((m, i) => {
-      m.material = hidden ? HIDDEN_MAT : this.ownMaterials[i];
-    });
   }
 
   public update(delta: number): void {

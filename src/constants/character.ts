@@ -51,6 +51,10 @@ export const HERO = {
   MOVE_ANIM_MIN_SPEED: 0.4,
   TURN_RATE_PER_S: 12,
   LAND_TIME_SCALE: 1.6,
+  // First-person eye relative to the Head bone (x right, y up, -z forward).
+  FPV_EYE_OFFSET: [0, 0.1, -0.05] as const,
+  // Head bone scale in first-person: collapses head, hair and eyes.
+  FPV_HEAD_SCALE: 0.001,
   // Enemies
   ENEMY_WALK_SPEED_SCALE: 1.15,
 } as const;
@@ -77,9 +81,9 @@ export const TPP_CAMERA = {
 } as const;
 
 // Rifle hold, all in the aim frame (x right, y up, -z forward), metres.
-// Right-hand grip target relative to the chest bone; the gun hangs off it.
+// The gun is posed from the hero's eyes exactly like the first-person
+// viewmodel (WEAPON_DEFS offsets), so both views hold it identically.
 export const GUN_HOLD = {
-  RIGHT_HAND_ANCHOR: [0.15, -0.02, -0.32] as const,
   // Lowered carry pitch when not aiming (rad); sprint lowers it further.
   LOWERED_PITCH: -0.35,
   SPRINT_PITCH: -0.75,
@@ -89,23 +93,3 @@ export const GUN_HOLD = {
   POLE_RIGHT: [0.8, -1, 0.3] as const,
   POLE_LEFT: [-0.8, -1, 0.2] as const,
 } as const;
-
-// Per weapon (index matches WEAPON_DEFS): hand grips + muzzle in rig space.
-// Values are the viewmodel hand placements from WeaponModels.
-export const GUN_GRIPS = [
-  {
-    RIGHT: [0.03, -0.14, -0.34] as const,
-    LEFT: [0.0, -0.085, -0.6] as const,
-    MUZZLE: [0, 0.07, -0.97] as const,
-  },
-  {
-    RIGHT: [0.012, -0.06, 0.045] as const,
-    LEFT: [-0.022, -0.07, 0.02] as const,
-    MUZZLE: [0, 0.032, -0.29] as const,
-  },
-  {
-    RIGHT: [0.028, -0.09, -0.386] as const,
-    LEFT: [-0.03, -0.062, -0.64] as const,
-    MUZZLE: [0, 0.045, -0.815] as const,
-  },
-] as const;

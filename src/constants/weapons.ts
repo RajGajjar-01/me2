@@ -13,8 +13,8 @@ export const WEAPON_DEFS = [
     startAmmo: 30,
     reserveAmmo: 120,
     damage: 48,
-    idleOffset: [0.25, -0.285, -0.19] as const,
-    adsOffset: [0.0, -0.125, -0.03] as const,
+    idleOffset: [0.02, -0.3, 0.22] as const,
+    adsOffset: [0.0, -0.13, 0.24] as const,
     recoilForce: {
       posZ: 0.052,
       rotX: 0.08,
@@ -34,8 +34,8 @@ export const WEAPON_DEFS = [
     startAmmo: 15,
     reserveAmmo: 60,
     damage: 36,
-    idleOffset: [0.15, -0.125, -0.24] as const,
-    adsOffset: [0.0, -0.055, -0.18] as const,
+    idleOffset: [0.12, -0.28, -0.14] as const,
+    adsOffset: [0.0, -0.06, -0.08] as const,
     recoilForce: {
       posZ: 0.038,
       rotX: 0.06,
@@ -55,8 +55,8 @@ export const WEAPON_DEFS = [
     startAmmo: 6,
     reserveAmmo: 30,
     damage: 22,
-    idleOffset: [0.2, -0.26, -0.24] as const,
-    adsOffset: [0.0, -0.075, -0.1] as const,
+    idleOffset: [0.02, -0.3, -0.04] as const,
+    adsOffset: [0.0, -0.07, 0.0] as const,
     recoilForce: {
       posZ: 0.085,
       rotX: 0.14,

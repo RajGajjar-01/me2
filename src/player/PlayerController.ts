@@ -317,8 +317,13 @@ export class PlayerController {
   /** FPV / aiming: body faces the camera. TPP: body turns toward travel. */
   private updateFacing(isMoving: boolean, delta: number): void {
     if (this.move !== 'normal') return;
+    // First-person: the camera sits in the body, so it can't lag behind.
+    if (this.viewMode === 'fpv') {
+      this.facingYaw = this.yaw;
+      return;
+    }
     let target: number | null = null;
-    if (this.viewMode === 'fpv' || this.aimLock) target = this.yaw;
+    if (this.aimLock) target = this.yaw;
     else if (isMoving) target = Math.atan2(-this.moveDir.x, -this.moveDir.z);
     if (target === null) return;
     const k = Math.min(1, delta * HERO.TURN_RATE_PER_S);

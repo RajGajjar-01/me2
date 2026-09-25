@@ -1,14 +1,10 @@
 import * as THREE from 'three';
 import { type Arm, rotateWorld, solveArm } from '../character/armIK';
 import { Hero, type HeroAssets } from '../character/HeroModel';
-import {
-  GUN_GRIPS,
-  GUN_HOLD,
-  HERO,
-  type HeroClip,
-} from '../constants/character';
+import { GUN_HOLD, HERO, type HeroClip } from '../constants/character';
 import { MANTLE } from '../constants/player';
-import type { WeaponRig } from '../weapons/WeaponModels';
+import { GUN_MODELS } from '../constants/weapons';
+import { gripOf, type WeaponRig } from '../weapons/WeaponModels';
 import type { PlayerController } from './PlayerController';
 
 const tuple = (t: readonly number[]) => new THREE.Vector3(t[0], t[1], t[2]);
@@ -19,52 +15,61 @@ const _c = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _tR = new THREE.Vector3();
 const _tL = new THREE.Vector3();
-const _gunPos = new THREE.Vector3();
-const _anchor = new THREE.Vector3();
+const _eye = new THREE.Vector3();
 const _poleR = new THREE.Vector3();
 const _poleL = new THREE.Vector3();
 const _qAim = new THREE.Quaternion();
 const _qYaw = new THREE.Quaternion();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _m = new THREE.Matrix4();
-const _pos = new THREE.Vector3();
+const _mGun = new THREE.Matrix4();
 const _quat = new THREE.Quaternion();
 const _scale = new THREE.Vector3();
+const _one = new THREE.Vector3(1, 1, 1);
 const UP = new THREE.Vector3(0, 1, 0);
 const RIGHT = new THREE.Vector3(1, 0, 0);
 
+/** Third-person copy of a viewmodel gun (no muzzle flash/light). */
 interface TppGun {
   group: THREE.Group;
-  rightGrip: THREE.Vector3;
-  leftGrip: THREE.Vector3;
+  leftArm: THREE.Group;
+  rightArm: THREE.Group;
   muzzle: THREE.Object3D;
 }
 
 /**
  * The player's own body: the erangel-run hero, animated from the controller's
- * movement state, holding the current weapon with two-hand IK. Visible in
- * third-person; in first-person it only casts the shadow.
+ * movement state, both hands IK'd onto the current gun's grips.
+ * - First-person: camera sits at the hero's eyes (head collapsed), hands
+ *   hold the camera-attached viewmodel gun.
+ * - Third-person: a copy of the gun takes the viewmodel's exact pose relative
+ *   to the hero's eyes (hip/ADS offset, recoil, sway, reload), so both views
+ *   hold it the same way.
  */
 export class PlayerCharacter {
   public readonly hero: Hero;
   private guns: TppGun[];
   private arms: { right: Arm; left: Arm };
   private chest: THREE.Object3D;
+  private head: THREE.Object3D;
   private handR: THREE.Object3D;
+  /** Bones we edit after the mixer. */
+  private edited: THREE.Object3D[];
+  /** Their clean animated pose (the mixer only rewrites changed values). */
+  private animPose = new Map<THREE.Object3D, THREE.Quaternion>();
   private ikWeight = 1;
   private handToGun = new THREE.Matrix4();
   private hasHandToGun = false;
   private lastMove = 'normal';
-  private savedArmQuats = new Map<THREE.Object3D, THREE.Quaternion>();
-  private static readonly ANCHOR = tuple(GUN_HOLD.RIGHT_HAND_ANCHOR);
   private static readonly POLE_RIGHT = tuple(GUN_HOLD.POLE_RIGHT);
   private static readonly POLE_LEFT = tuple(GUN_HOLD.POLE_LEFT);
+  private static readonly EYE = tuple(HERO.FPV_EYE_OFFSET);
 
   constructor(
     scene: THREE.Scene,
     private player: PlayerController,
     assets: HeroAssets,
-    rigs: readonly WeaponRig[],
+    private rigs: readonly WeaponRig[],
   ) {
     this.hero = new Hero(assets);
     scene.add(this.hero.root);
@@ -84,33 +89,36 @@ export class PlayerCharacter {
       },
     };
     this.chest = b('spine_03');
+    this.head = b('Head');
     this.handR = this.arms.right.hand;
+    const { right, left } = this.arms;
+    this.edited = [
+      this.chest,
+      right.upper,
+      right.lower,
+      left.upper,
+      left.lower,
+    ];
 
-    // Third-person guns: the viewmodel gun meshes without the FPV hands/flash.
-    this.guns = rigs.map((rig, i) => {
+    this.guns = rigs.map((rig) => {
+      const kids = rig.root.children;
       const group = rig.root.clone(true);
-      const strip = [rig.leftArm, rig.rightArm, rig.muzzleFlash].map((o) =>
-        rig.root.children.indexOf(o),
-      );
-      group.remove(...strip.map((idx) => group.children[idx]));
-      group.position.set(0, 0, 0);
-      group.rotation.set(0, 0, 0);
+      const leftArm = group.children[kids.indexOf(rig.leftArm)] as THREE.Group;
+      const rightArm = group.children[
+        kids.indexOf(rig.rightArm)
+      ] as THREE.Group;
+      group.remove(group.children[kids.indexOf(rig.muzzleFlash)]);
       group.visible = false;
+      group.matrixAutoUpdate = false; // posed from matrices each frame
       group.traverse((o) => {
         const m = o as THREE.Mesh;
         if (m.isMesh) m.castShadow = true;
       });
-      const grip = GUN_GRIPS[i];
       const muzzle = new THREE.Object3D();
-      muzzle.position.copy(tuple(grip.MUZZLE));
+      muzzle.position.copy(rig.muzzlePos);
       group.add(muzzle);
       scene.add(group);
-      return {
-        group,
-        rightGrip: tuple(grip.RIGHT),
-        leftGrip: tuple(grip.LEFT),
-        muzzle,
-      };
+      return { group, leftArm, rightArm, muzzle };
     });
   }
 
@@ -122,7 +130,7 @@ export class PlayerCharacter {
   public update(delta: number, weaponIndex: number, aiming: boolean): void {
     const p = this.player;
     const tpp = p.viewMode === 'tpp';
-    this.hero.setHidden(!tpp);
+    this.head.scale.setScalar(tpp ? 1 : HERO.FPV_HEAD_SCALE);
 
     const root = this.hero.root;
     root.position.set(
@@ -132,8 +140,18 @@ export class PlayerCharacter {
     );
     root.rotation.y = p.facingYaw;
 
+    // Undo last frame's edits so a frozen clip can't let them accumulate.
+    for (const bone of this.edited) {
+      const q = this.animPose.get(bone);
+      if (q) bone.quaternion.copy(q);
+    }
     this.updateAnimation();
     this.hero.update(delta);
+    for (const bone of this.edited) {
+      const q = this.animPose.get(bone);
+      if (q) q.copy(bone.quaternion);
+      else this.animPose.set(bone, bone.quaternion.clone());
+    }
     // Swim_Fwd_Loop (prone crawl) is authored below the rig's zero.
     this.hero.model.position.y =
       this.hero.current === this.hero.actions.Swim_Fwd_Loop
@@ -141,14 +159,117 @@ export class PlayerCharacter {
         : 0;
     root.updateMatrixWorld(true);
 
-    const holdsGun = p.move === 'normal';
     const k = Math.min(1, delta * GUN_HOLD.IK_BLEND_PER_S);
-    this.ikWeight += ((holdsGun ? 1 : 0) - this.ikWeight) * k;
+    const holdsGun = p.move === 'normal' ? 1 : 0;
+    this.ikWeight += (holdsGun - this.ikWeight) * k;
+    const w = this.ikWeight;
+
+    const pitch =
+      aiming || !tpp
+        ? p.pitch
+        : p.isSprinting
+          ? GUN_HOLD.SPRINT_PITCH
+          : GUN_HOLD.LOWERED_PITCH;
+    _qYaw.setFromAxisAngle(UP, p.facingYaw);
+    _euler.set(pitch, p.facingYaw, 0);
+    _qAim.setFromEuler(_euler);
+
+    if (w > 1e-3) {
+      // Rifle stance: twist the torso (left shoulder forward) and bend the
+      // upper spine with the aim so the shoulders follow the gun.
+      _q.setFromAxisAngle(UP, GUN_MODELS[weaponIndex].TWIST * w);
+      rotateWorld(this.chest, _q);
+      const right = _b.copy(RIGHT).applyQuaternion(_qYaw);
+      _q.setFromAxisAngle(right, pitch * GUN_HOLD.SPINE_PITCH_SHARE * w);
+      rotateWorld(this.chest, _q);
+    }
 
     this.guns.forEach((g, i) => {
       g.group.visible = tpp && i === weaponIndex;
     });
-    this.holdGun(this.guns[weaponIndex], aiming || !tpp);
+
+    const rig = this.rigs[weaponIndex];
+    this.eyePoint(_eye);
+    if (tpp) {
+      const gun = this.guns[weaponIndex];
+      // Mirror the viewmodel's reload choreography onto the TPP hands.
+      gun.leftArm.position.copy(rig.leftArm.position);
+      gun.leftArm.rotation.copy(rig.leftArm.rotation);
+      gun.rightArm.position.copy(rig.rightArm.position);
+      gun.rightArm.rotation.copy(rig.rightArm.rotation);
+      this.placeTppGun(gun, rig);
+      this.reachFor(gripOf(gun.rightArm), gripOf(gun.leftArm));
+      if (w >= 0.999) {
+        // Remember the gun relative to the hand for the next special move.
+        this.handToGun
+          .copy(this.handR.matrixWorld)
+          .invert()
+          .multiply(gun.group.matrixWorld);
+        this.hasHandToGun = true;
+      }
+    } else {
+      // First-person: camera at the eyes (position only; aim stays). The
+      // viewmodel is its child, so update it before the IK reads the grips.
+      p.camera.position.copy(_eye);
+      p.camera.updateMatrixWorld(true);
+      this.reachFor(gripOf(rig.rightArm), gripOf(rig.leftArm));
+    }
+  }
+
+  private eyePoint(out: THREE.Vector3): THREE.Vector3 {
+    this.head.getWorldPosition(out);
+    return out.add(_c.copy(PlayerCharacter.EYE).applyQuaternion(_qYaw));
+  }
+
+  /**
+   * TPP gun = eye frame (aim) x viewmodel container x rig root, i.e. exactly
+   * where the first-person gun would be. Special moves blend toward the gun
+   * riding on the right hand.
+   */
+  private placeTppGun(gun: TppGun, rig: WeaponRig): void {
+    const container = rig.root.parent!;
+    container.updateMatrix();
+    rig.root.updateMatrix();
+    _mGun
+      .compose(_eye, _qAim, _one)
+      .multiply(container.matrix)
+      .multiply(rig.root.matrix);
+
+    const w = this.ikWeight;
+    if (w < 0.999 && this.hasHandToGun) {
+      _m.multiplyMatrices(this.handR.matrixWorld, this.handToGun);
+      _m.decompose(_b, _quat, _scale);
+      _mGun.decompose(_c, _q, _scale);
+      _b.lerp(_c, w);
+      _quat.slerp(_q, w);
+      _mGun.compose(_b, _quat, _one);
+    }
+    gun.group.matrix.copy(_mGun);
+    gun.group.updateMatrixWorld(true);
+  }
+
+  /** Two-hand IK onto the grips, blended by the current IK weight. */
+  private reachFor(rightGrip: THREE.Object3D, leftGrip: THREE.Object3D): void {
+    const w = this.ikWeight;
+    if (w <= 1e-3) return;
+    const targetR = rightGrip.getWorldPosition(_tR);
+    const targetL = leftGrip.getWorldPosition(_tL);
+    const poleR = _poleR
+      .copy(PlayerCharacter.POLE_RIGHT)
+      .applyQuaternion(_qYaw);
+    const poleL = _poleL.copy(PlayerCharacter.POLE_LEFT).applyQuaternion(_qYaw);
+
+    const { right, left } = this.arms;
+    solveArm(right, targetR, poleR);
+    solveArm(left, targetL, poleL);
+    if (w < 0.999) {
+      // Blend IK result back toward the animated arms (e.g. mid-roll).
+      for (const bone of [right.upper, right.lower, left.upper, left.lower]) {
+        _q.copy(bone.quaternion); // IK result
+        bone.quaternion.copy(this.animPose.get(bone)!).slerp(_q, w);
+      }
+      this.chest.updateMatrixWorld(true);
+    }
   }
 
   private updateAnimation(): void {
@@ -219,101 +340,5 @@ export class PlayerCharacter {
       rate = speed / HERO.WALK_CLIP_SPEED;
     }
     hero.play(clip).timeScale = rate;
-  }
-
-  /**
-   * Places the gun in the aim frame (carried low unless aiming) and pulls
-   * both hands onto its grips. Special moves blend the IK out and the gun
-   * rides on the right hand instead.
-   */
-  private holdGun(gun: TppGun, aiming: boolean): void {
-    const p = this.player;
-    const w = this.ikWeight;
-    const pitch = aiming
-      ? p.pitch
-      : p.isSprinting
-        ? GUN_HOLD.SPRINT_PITCH
-        : GUN_HOLD.LOWERED_PITCH;
-
-    _qYaw.setFromAxisAngle(UP, p.facingYaw);
-    _euler.set(pitch, p.facingYaw, 0);
-    _qAim.setFromEuler(_euler);
-
-    if (w > 1e-3) {
-      // Bend the upper spine with the aim so the shoulders follow.
-      const right = _b.copy(RIGHT).applyQuaternion(_qYaw);
-      _q.setFromAxisAngle(right, pitch * GUN_HOLD.SPINE_PITCH_SHARE * w);
-      rotateWorld(this.chest, _q);
-    }
-
-    // Gun pose from the chest: the right-hand grip lands on the anchor.
-    this.chest.getWorldPosition(_pos);
-    const anchor = _anchor
-      .copy(PlayerCharacter.ANCHOR)
-      .applyQuaternion(_qAim)
-      .add(_pos);
-    const gunPos = _gunPos
-      .copy(gun.rightGrip)
-      .applyQuaternion(_qAim)
-      .negate()
-      .add(anchor);
-
-    if (w >= 0.999 || !this.hasHandToGun) {
-      gun.group.position.copy(gunPos);
-      gun.group.quaternion.copy(_qAim);
-    } else {
-      // Blend toward "gun rides the right hand" during rolls/slides/climbs.
-      _m.multiplyMatrices(this.handR.matrixWorld, this.handToGun);
-      _m.decompose(_c, _quat, _scale);
-      gun.group.position.copy(_c).lerp(gunPos, w);
-      gun.group.quaternion.copy(_quat).slerp(_qAim, w);
-    }
-    gun.group.updateMatrixWorld(true);
-
-    if (w > 1e-3) {
-      const targetR = _tR
-        .copy(gun.rightGrip)
-        .applyMatrix4(gun.group.matrixWorld);
-      const targetL = _tL
-        .copy(gun.leftGrip)
-        .applyMatrix4(gun.group.matrixWorld);
-      const poleR = _poleR
-        .copy(PlayerCharacter.POLE_RIGHT)
-        .applyQuaternion(_qYaw);
-      const poleL = _poleL
-        .copy(PlayerCharacter.POLE_LEFT)
-        .applyQuaternion(_qYaw);
-
-      const { right, left } = this.arms;
-      const bones = [right.upper, right.lower, left.upper, left.lower];
-      if (w < 0.999) for (const bone of bones) this.saveQuat(bone);
-      solveArm(right, targetR, poleR);
-      solveArm(left, targetL, poleL);
-      if (w < 0.999) {
-        for (const bone of bones) {
-          _q.copy(bone.quaternion); // IK result
-          bone.quaternion.copy(this.savedArmQuats.get(bone)!).slerp(_q, w);
-        }
-        this.chest.updateMatrixWorld(true);
-      }
-    }
-
-    if (w >= 0.999) {
-      // Remember the gun relative to the hand for the next special move.
-      this.handToGun
-        .copy(this.handR.matrixWorld)
-        .invert()
-        .multiply(gun.group.matrixWorld);
-      this.hasHandToGun = true;
-    }
-  }
-
-  private saveQuat(bone: THREE.Object3D): void {
-    let q = this.savedArmQuats.get(bone);
-    if (!q) {
-      q = new THREE.Quaternion();
-      this.savedArmQuats.set(bone, q);
-    }
-    q.copy(bone.quaternion);
   }
 }
