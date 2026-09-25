@@ -188,3 +188,10 @@ export const GUN_MODELS = [
     FLASH: 'rifle' as const,
   },
 ] as const;
+
+// PBR look for the OBJ guns ("*Metal*" materials are metallic, the rest matte).
+export const GUN_MATERIAL = {
+  METALNESS: 0.7,
+  METAL_ROUGHNESS: 0.4,
+  ROUGHNESS: 0.7,
+} as const;

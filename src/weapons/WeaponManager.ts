@@ -433,7 +433,7 @@ export class WeaponManager {
       this.recoilRot.z + this.swapAnimRot.z + this.reloadAnimRot.z,
     );
 
-    rig.leftArm.position.copy(this.reloadArmOffset);
+    rig.leftArm.position.copy(rig.leftArmBase).add(this.reloadArmOffset);
     rig.leftArm.rotation.copy(this.reloadArmRot);
 
     if (rig.slideOrBolt && this.boltPull > 0) {
@@ -881,7 +881,7 @@ export class WeaponManager {
     this.reloadArmOffset.set(0, 0, 0);
     this.reloadArmRot.set(0, 0, 0);
     this.boltPull = 0;
-    rig.leftArm.position.set(0, 0, 0);
+    rig.leftArm.position.copy(rig.leftArmBase);
     rig.leftArm.rotation.set(0, 0, 0);
     if (rig.slideOrBolt) rig.slideOrBolt.position.z = 0;
   }

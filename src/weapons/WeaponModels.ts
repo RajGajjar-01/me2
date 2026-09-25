@@ -1,8 +1,7 @@
 import * as THREE from 'three';
-import { MTLLoader } from 'three/examples/jsm/loaders/MTLLoader.js';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MUZZLE_FLASH } from '../constants/effects';
-import { GUN_MODELS } from '../constants/weapons';
+import { GUN_MATERIAL, GUN_MODELS } from '../constants/weapons';
 import { TextureGenerator } from '../utils/TextureGenerator';
 
 export interface WeaponRig {
@@ -19,6 +18,8 @@ export interface WeaponRig {
    */
   leftArm: THREE.Group;
   rightArm: THREE.Group;
+  /** Rest position of each anchor (= its grip); reload offsets add to it. */
+  leftArmBase: THREE.Vector3;
 }
 
 /** The point inside a hand anchor the hero's wrist is pulled to. */
@@ -48,15 +49,17 @@ export class WeaponModels {
     };
     const [objText, mtlText] = await Promise.all([file('obj'), file('mtl')]);
 
-    const materials = new MTLLoader().parse(mtlText, '');
-    materials.preload();
-    const gun = new OBJLoader().setMaterials(materials).parse(objText);
+    const materials = WeaponModels.parseMtl(mtlText);
+    const gun = new OBJLoader().parse(objText);
     gun.traverse((o) => {
       const m = o as THREE.Mesh;
-      if (m.isMesh) {
-        m.castShadow = false;
-        m.receiveShadow = true;
-      }
+      if (!m.isMesh) return;
+      const swap = (mat: THREE.Material) => materials.get(mat.name) ?? mat;
+      m.material = Array.isArray(m.material)
+        ? m.material.map(swap)
+        : swap(m.material);
+      m.castShadow = false;
+      m.receiveShadow = true;
     });
 
     // Barrel +X -> -Z, real-world length, bore muzzle onto the rig muzzle.
@@ -73,11 +76,13 @@ export class WeaponModels {
     const root = new THREE.Group();
     root.add(gun);
 
+    // Each anchor pivots at its own grip, so reload rotations turn the hand
+    // in place instead of swinging it around the gun's origin.
     const anchor = (gripModel: readonly number[]) => {
       const arm = new THREE.Group();
+      arm.position.copy(tuple(gripModel).applyMatrix4(gun.matrix));
       const grip = new THREE.Object3D();
       grip.name = 'grip';
-      grip.position.copy(tuple(gripModel).applyMatrix4(gun.matrix));
       arm.add(grip);
       root.add(arm);
       return arm;
@@ -99,7 +104,40 @@ export class WeaponModels {
       muzzlePos,
       leftArm,
       rightArm,
+      leftArmBase: leftArm.position.clone(),
     };
+  }
+
+  /**
+   * MTL -> PBR. Blender writes Kd in linear space; MTLLoader reads it as
+   * sRGB (turning wood near-black) and adds harsh Phong specular.
+   */
+  private static parseMtl(text: string): Map<string, THREE.Material> {
+    const out = new Map<string, THREE.Material>();
+    let name = '';
+    for (const line of text.split('\n')) {
+      const [key, ...v] = line.trim().split(/\s+/);
+      if (key === 'newmtl') name = v[0];
+      if (key !== 'Kd' || !name) continue;
+      const metal = /metal/i.test(name);
+      out.set(
+        name,
+        new THREE.MeshStandardMaterial({
+          name,
+          color: new THREE.Color().setRGB(
+            +v[0],
+            +v[1],
+            +v[2],
+            THREE.LinearSRGBColorSpace,
+          ),
+          metalness: metal ? GUN_MATERIAL.METALNESS : 0,
+          roughness: metal
+            ? GUN_MATERIAL.METAL_ROUGHNESS
+            : GUN_MATERIAL.ROUGHNESS,
+        }),
+      );
+    }
+    return out;
   }
 
   private static createMuzzleFlash(muzzlePos: THREE.Vector3): {
