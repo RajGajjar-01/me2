@@ -107,7 +107,7 @@ export const GUN_HOLD = {
   // about the right hand and angles across the body (yaw, rad). The
   // two-handed sprint carry stays shallower so the left hand keeps reach
   // while the sprint clip pumps the shoulders.
-  LOW_READY_PITCH: -0.5,
+  LOW_READY_PITCH: -0.65,
   LOW_READY_YAW: 0.4,
   // ...and drops toward the right hip, clear of the head (m, body frame).
   LOW_READY_OFFSET: [0.04, -0.12, 0] as const,
