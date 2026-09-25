@@ -131,6 +131,12 @@ async function loadAssets(): Promise<HeroAssets> {
 /** One animated character: its own skeleton, mixer and actions. */
 export class Hero {
   public readonly root = new THREE.Group();
+  /**
+   * Whole-body pose layer between root and model (e.g. lying prone). Never
+   * rotate `model` itself: its clone stores the facing flip as Euler
+   * (-PI, 0, -PI), so overwriting one axis flips the body upside down.
+   */
+  public readonly body = new THREE.Group();
   public readonly model: THREE.Object3D;
   public readonly mixer: THREE.AnimationMixer;
   public readonly actions: Record<HeroClip, THREE.AnimationAction>;
@@ -138,7 +144,8 @@ export class Hero {
 
   constructor(assets: HeroAssets) {
     this.model = SkeletonUtils.clone(assets.template);
-    this.root.add(this.model);
+    this.root.add(this.body);
+    this.body.add(this.model);
 
     this.mixer = new THREE.AnimationMixer(this.model);
     this.actions = {} as Record<HeroClip, THREE.AnimationAction>;

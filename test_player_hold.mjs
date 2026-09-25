@@ -174,4 +174,68 @@ for (const view of ['fpv', 'tpp']) {
     }
   }
 }
+// --- Prone: lying face-down, head up looking forward, legs on the floor. ---
+// Face direction in the Head bone's frame, taken while standing facing -Z.
+player.viewMode = 'fpv';
+player.stance = 'stand';
+player.velocity.set(0, 0, 0);
+for (let f = 0; f < 60; f++) pc.update(1 / 60, 0, false);
+scene.updateMatrixWorld(true);
+const headQ = () =>
+  pc.hero.bone('Head').getWorldQuaternion(new THREE.Quaternion());
+const faceLocal = new THREE.Vector3(0, 0, -1).applyQuaternion(headQ().invert());
+
+player.stance = 'prone';
+container.position.set(...WEAPON_DEFS[0].adsOffset); // prone holds at eye level
+let minY = Infinity;
+let maxFootY = -Infinity;
+let lowestBone = '';
+let maxKneeOut = 0;
+for (let f = 0; f < 120; f++) {
+  player.velocity.set(0, 0, f < 60 ? 0 : -0.5); // settle, then crawl forward
+  pc.update(1 / 60, 0, false);
+  scene.updateMatrixWorld(true);
+  if (f < 60) continue; // wait for the lie-down blend
+  pc.hero.model.traverse((o) => {
+    if (!o.isBone) return;
+    const y = o.getWorldPosition(new THREE.Vector3()).y;
+    if (y < minY) {
+      minY = y;
+      lowestBone = `${o.name}@${f < 60 ? 'still' : 'crawl'}`;
+    }
+  });
+  maxFootY = Math.max(maxFootY, bonePos('foot_l').y, bonePos('foot_r').y);
+  const pel = bonePos('pelvis');
+  maxKneeOut = Math.max(
+    maxKneeOut,
+    Math.abs(bonePos('calf_l').x - pel.x),
+    Math.abs(bonePos('calf_r').x - pel.x),
+  );
+}
+const face = faceLocal.clone().applyQuaternion(headQ());
+const head = bonePos('Head');
+const pelvis = bonePos('pelvis');
+const feet = bonePos('foot_l').add(bonePos('foot_r')).multiplyScalar(0.5);
+const gunQ = rigs[0].root.getWorldQuaternion(new THREE.Quaternion());
+const hands = [
+  measureHand('r', gripOf(rigs[0].rightArm), gunQ),
+  measureHand('l', gripOf(rigs[0].leftArm), gunQ),
+];
+console.log(
+  `prone: face fwd ${(-face.z).toFixed(2)} (down ${(-face.y).toFixed(2)})  head y ${head.y.toFixed(2)}  pelvis y ${pelvis.y.toFixed(2)}  body length ${head.distanceTo(feet).toFixed(2)}m  centre z ${((head.z + feet.z) / 2).toFixed(2)}  lowest bone ${lowestBone} y ${minY.toFixed(3)}  crawl foot max y ${maxFootY.toFixed(2)} knee out ${maxKneeOut.toFixed(2)}m  wrist err ${hands.map((h) => (h.err * 100).toFixed(1)).join('/')}cm`,
+);
+assert.ok(-face.z > 0.7, 'prone face must look forward, not at the ground');
+assert.ok(head.y < 0.6 && pelvis.y < 0.35, 'body must lie on the ground');
+assert.ok(Math.abs(head.y - feet.y) < 0.5, 'body must be horizontal');
+assert.ok(head.z < feet.z, 'head must point the way the player faces');
+assert.ok(
+  Math.abs((head.z + feet.z) / 2) < 0.3,
+  'body must be centred on the capsule',
+);
+assert.ok(minY > -0.05, 'no bone may sink through the floor');
+assert.ok(maxKneeOut > 0.3, 'crawling must draw a knee up sideways');
+assert.ok(maxFootY < 0.35, 'feet stay on the ground while crawling');
+for (const h of hands)
+  assert.ok(h.err < TOLERANCE_M, 'prone hands must hold the gun');
+
 console.log('player hold: ok');

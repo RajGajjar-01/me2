@@ -43,6 +43,8 @@ export class WeaponManager {
   public viewmodelContainer: THREE.Group = new THREE.Group();
   public currentWeaponIndex = 0;
   public isAiming = false;
+  /** Set by the game each frame while prone. */
+  public proneHold = false;
   public isReloading = false;
   public isSwapping = false;
 
@@ -228,8 +230,9 @@ export class WeaponManager {
       this.input.isMouseDown(INPUT.ADS_MOUSE_BUTTON) &&
       !this.isReloading &&
       !this.isSwapping;
+    // Prone holds the gun up at eye level (hip carry would go through the ground).
     this.targetOffset.copy(
-      this.isAiming ? weapon.adsOffset : weapon.idleOffset,
+      this.isAiming || this.proneHold ? weapon.adsOffset : weapon.idleOffset,
     );
 
     const targetFov = this.isAiming ? WEAPONS.ADS_FOV : WEAPONS.HIP_FOV;

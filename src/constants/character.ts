@@ -10,7 +10,6 @@ export const HERO_CLIPS = [
   'Jump_Loop',
   'Jump_Land',
   'Roll',
-  'Swim_Fwd_Loop',
   'Hit_Head',
   'Death01',
   'Hit_Knockback',
@@ -41,13 +40,23 @@ export const HERO = {
   FOOT_LIFT_M: 0.035,
   FADE_S: 0.2,
   FADE_FAST_S: 0.08,
-  // Clip playback rate matched to physics speed (m/s the clip was authored at).
-  WALK_CLIP_SPEED: 1.9,
-  SPRINT_CLIP_SPEED: 6.2,
-  CROUCH_CLIP_SPEED: 1.6,
-  PRONE_CLIP_SPEED: 1.2,
-  // Swim_Fwd_Loop is the face-down crawl used for prone; it sits below rig zero.
-  PRONE_LIFT_M: 0.14,
+  // Clip stride speeds (m/s at 1x), as in erangel-run. Clips never play
+  // faster than 1x; below full speed they slow down with the body.
+  WALK_CLIP_SPEED: 1.3 / 1.333,
+  SPRINT_CLIP_SPEED: 5.5 / 0.667,
+  CROUCH_CLIP_SPEED: 1.5 / 2,
+  // Prone: no prone clip exists, so the idle pose is laid face-down.
+  PRONE_BLEND_PER_S: 6,
+  PRONE_HEIGHT_M: 0.15,
+  // Shift so the lying body is centred on the capsule, not the feet.
+  PRONE_BODY_SHIFT_M: 0.75,
+  // Lift the head (rad) so a face-down body looks forward.
+  PRONE_NECK_LIFT: 1.35,
+  // Frog crawl: one leg cycle per CRAWL_STRIDE_M travelled. The knee is
+  // drawn up sideways along the ground (hip swings out, shin folds back).
+  CRAWL_STRIDE_M: 0.6,
+  CRAWL_HIP_OUT: 0.7,
+  CRAWL_KNEE_BEND: 1.1,
   MOVE_ANIM_MIN_SPEED: 0.4,
   TURN_RATE_PER_S: 12,
   LAND_TIME_SCALE: 1.6,
@@ -55,8 +64,6 @@ export const HERO = {
   FPV_EYE_OFFSET: [0, 0.1, -0.05] as const,
   // Head bone scale in first-person: collapses head, hair and eyes.
   FPV_HEAD_SCALE: 0.001,
-  // Enemies
-  ENEMY_WALK_SPEED_SCALE: 1.15,
 } as const;
 
 export const MOVES = {

@@ -82,6 +82,11 @@ export class PlayerCharacter {
   /** Their clean animated pose (the mixer only rewrites changed values). */
   private animPose = new Map<THREE.Object3D, THREE.Quaternion>();
   private ikWeight = 1;
+  /** 0 standing .. 1 lying face-down. */
+  private proneT = 0;
+  private crawlPhase = 0;
+  private neck: THREE.Object3D;
+  private legs: { thigh: THREE.Object3D; calf: THREE.Object3D; out: number }[];
   private handToGun = new THREE.Matrix4();
   private hasHandToGun = false;
   private lastMove = 'normal';
@@ -115,6 +120,12 @@ export class PlayerCharacter {
     };
     this.chest = b('spine_03');
     this.head = b('Head');
+    this.neck = b('neck_01');
+    // `out` = which way (about up) swings that leg outward: left leg to -X.
+    this.legs = [
+      { thigh: b('thigh_l'), calf: b('calf_l'), out: -1 },
+      { thigh: b('thigh_r'), calf: b('calf_r'), out: 1 },
+    ];
     this.handR = this.arms.right.hand;
     const { right, left } = this.arms;
     this.edited = [
@@ -125,6 +136,8 @@ export class PlayerCharacter {
       left.upper,
       left.lower,
       left.hand,
+      this.neck,
+      ...this.legs.flatMap((l) => [l.thigh, l.calf]),
     ];
     this.grips = {
       right: this.handGrip('r', GUN_HOLD.RIGHT_FINGERS, GUN_HOLD.RIGHT_PALM),
@@ -216,11 +229,7 @@ export class PlayerCharacter {
       if (q) q.copy(bone.quaternion);
       else this.animPose.set(bone, bone.quaternion.clone());
     }
-    // Swim_Fwd_Loop (prone crawl) is authored below the rig's zero.
-    this.hero.model.position.y =
-      this.hero.current === this.hero.actions.Swim_Fwd_Loop
-        ? HERO.PRONE_LIFT_M
-        : 0;
+    this.layProne(delta);
     root.updateMatrixWorld(true);
 
     const k = Math.min(1, delta * GUN_HOLD.IK_BLEND_PER_S);
@@ -373,6 +382,51 @@ export class PlayerCharacter {
     arm.hand.updateMatrixWorld(true);
   }
 
+  /**
+   * Prone has no clip: lay the body face-down around the capsule (pitch the
+   * model -90deg about its feet, then shift it back so it's centred), lift
+   * the head to look forward, and frog-kick the legs while crawling.
+   * Rotations are about world axes; with the body pitched down, +angle
+   * about `right` turns the face from the ground to forward, and the crawl
+   * turns thigh/shin about `up` so the legs stay on the ground.
+   */
+  private layProne(delta: number): void {
+    const p = this.player;
+    const target = p.stance === 'prone' && p.move === 'normal' ? 1 : 0;
+    this.proneT +=
+      (target - this.proneT) * Math.min(1, delta * HERO.PRONE_BLEND_PER_S);
+    const t = this.proneT;
+    const body = this.hero.body;
+    body.rotation.x = (-Math.PI / 2) * t;
+    body.position.set(0, HERO.PRONE_HEIGHT_M * t, HERO.PRONE_BODY_SHIFT_M * t);
+    this.hero.root.updateMatrixWorld(true);
+    if (t < 1e-3) return;
+
+    const right = _b.set(1, 0, 0).applyAxisAngle(UP, p.facingYaw);
+    rotateWorld(
+      this.neck,
+      _q.setFromAxisAngle(right, HERO.PRONE_NECK_LIFT * t),
+    );
+
+    this.crawlPhase +=
+      ((p.getSpeed() * delta) / HERO.CRAWL_STRIDE_M) * Math.PI * 2;
+    const s = Math.sin(this.crawlPhase);
+    for (const leg of this.legs) {
+      // Left leg draws up on the positive half of the cycle, right on the other.
+      const amount = Math.max(0, leg.out < 0 ? s : -s) * t;
+      if (amount < 1e-3) continue;
+      rotateWorld(
+        leg.thigh,
+        _q.setFromAxisAngle(UP, leg.out * HERO.CRAWL_HIP_OUT * amount),
+      );
+      // Shin folds back toward the body, staying flat on the ground.
+      rotateWorld(
+        leg.calf,
+        _q.setFromAxisAngle(UP, -leg.out * HERO.CRAWL_KNEE_BEND * amount),
+      );
+    }
+  }
+
   private updateAnimation(): void {
     const p = this.player;
     const hero = this.hero;
@@ -425,20 +479,22 @@ export class PlayerCharacter {
 
     let clip: HeroClip;
     let rate = 1;
+    // Clips play at 1x like erangel-run (speeds come from their strides);
+    // they only slow down while the body is still accelerating.
+    const at = (clipSpeed: number) => Math.min(1, speed / clipSpeed);
     if (p.stance === 'prone') {
-      clip = 'Swim_Fwd_Loop';
-      rate = speed / HERO.PRONE_CLIP_SPEED; // 0 when still: frozen crawl pose
+      clip = 'Idle_Loop'; // straight-legged body, laid down by layProne()
     } else if (p.stance === 'crouch') {
       clip = moving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop';
-      if (moving) rate = speed / HERO.CROUCH_CLIP_SPEED;
+      if (moving) rate = at(HERO.CROUCH_CLIP_SPEED);
     } else if (!moving) {
       clip = 'Idle_Loop';
     } else if (p.isSprinting) {
       clip = 'Sprint_Loop';
-      rate = speed / HERO.SPRINT_CLIP_SPEED;
+      rate = at(HERO.SPRINT_CLIP_SPEED);
     } else {
       clip = 'Walk_Loop';
-      rate = speed / HERO.WALK_CLIP_SPEED;
+      rate = at(HERO.WALK_CLIP_SPEED);
     }
     hero.play(clip).timeScale = rate;
   }

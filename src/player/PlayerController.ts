@@ -325,10 +325,12 @@ export class PlayerController {
       this.facingYaw = this.yaw;
       return;
     }
-    let target: number | null = null;
-    if (this.aimLock) target = this.yaw;
-    else if (isMoving) target = Math.atan2(-this.moveDir.x, -this.moveDir.z);
-    if (target === null) return;
+    // Third-person: face the travel direction while moving, otherwise turn
+    // to where the camera looks (never stand facing the camera).
+    const target =
+      isMoving && !this.aimLock
+        ? Math.atan2(-this.moveDir.x, -this.moveDir.z)
+        : this.yaw;
     const k = Math.min(1, delta * HERO.TURN_RATE_PER_S);
     this.facingYaw += wrapAngle(target - this.facingYaw) * k;
   }
