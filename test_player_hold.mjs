@@ -213,6 +213,46 @@ function run(view, weapon, aiming) {
   scene.remove(pc2.hero.root);
 }
 
+// Third-person sprint: gun rides the right hand, left arm runs free.
+{
+  player.viewMode = 'tpp';
+  player.stance = 'stand';
+  player.isSprinting = false;
+  player.velocity.set(0, 0, 0);
+  container.position.set(...WEAPON_DEFS[0].idleOffset);
+  for (let f = 0; f < 30; f++) pc.update(1 / 60, 0); // capture hand->gun
+  player.isSprinting = true;
+  player.velocity.set(0, 0, -8);
+  const gun = pc.guns[0];
+  const rel = [];
+  let leftFar = 0;
+  for (let f = 0; f < 90; f++) {
+    pc.update(1 / 60, 0);
+    scene.updateMatrixWorld(true);
+    if (f < 45) continue; // wait for the blend
+    const hand = pc.hero.bone('hand_r');
+    // The TPP gun is posed via its matrix, so read the world position.
+    const gunPos = new THREE.Vector3().setFromMatrixPosition(
+      gun.group.matrixWorld,
+    );
+    rel.push(gunPos.applyMatrix4(hand.matrixWorld.clone().invert()).length());
+    leftFar = Math.max(
+      leftFar,
+      bonePos('hand_l').distanceTo(
+        gripOf(gun.leftArm).getWorldPosition(new THREE.Vector3()),
+      ),
+    );
+  }
+  const spread = Math.max(...rel) - Math.min(...rel);
+  console.log(
+    `tpp sprint: gun-to-right-hand drift ${(spread * 100).toFixed(1)}cm  left hand off grip ${leftFar.toFixed(2)}m`,
+  );
+  assert.ok(spread < 0.01, 'sprinting gun must stay locked to the right hand');
+  assert.ok(leftFar > 0.15, 'left hand must be free while sprinting');
+  player.isSprinting = false;
+  player.velocity.set(0, 0, 0);
+}
+
 const TOLERANCE_M = 0.03;
 for (const view of ['fpv', 'tpp']) {
   for (let w = 0; w < WEAPON_DEFS.length; w++) {

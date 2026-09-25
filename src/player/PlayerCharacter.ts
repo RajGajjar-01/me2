@@ -233,7 +233,10 @@ export class PlayerCharacter {
     root.updateMatrixWorld(true);
 
     const k = Math.min(1, delta * GUN_HOLD.IK_BLEND_PER_S);
-    const holdsGun = p.move === 'normal' ? 1 : 0;
+    // Hands leave the IK during special moves and a third-person sprint:
+    // the arms run the clip and the gun rides the right hand (PUBG sprint
+    // carry, left arm free). First-person keeps both hands on the gun.
+    const holdsGun = p.move === 'normal' && !(tpp && p.isSprinting) ? 1 : 0;
     this.ikWeight += (holdsGun - this.ikWeight) * k;
     const w = this.ikWeight;
 
