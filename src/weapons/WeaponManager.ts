@@ -73,7 +73,9 @@ export class WeaponManager {
     ...('pelletSpread' in def ? { pelletSpread: def.pelletSpread } : {}),
   }));
 
-  private weaponRigs: WeaponRig[] = [];
+  public weaponRigs: WeaponRig[] = [];
+  /** Third-person gun muzzle; when set, tracers/shells start there. */
+  public thirdPersonMuzzle: THREE.Object3D | null = null;
   public soundEngine: SoundEngine;
   public tracerManager: BulletTracerManager;
   public decalManager: DecalManager;
@@ -628,10 +630,16 @@ export class WeaponManager {
     rig.flashLight.intensity = WEAPONS.FLASH_LIGHT_INTENSITY;
     this.flashTimer = WEAPONS.FLASH_DURATION_S;
 
-    rig.muzzleFlash.getWorldPosition(this._muzzleWorld);
-    this.viewmodelContainer.localToWorld(
-      this._chamberWorld.copy(rig.chamberPos),
-    );
+    const tppMuzzle = this.thirdPersonMuzzle;
+    if (tppMuzzle?.parent) {
+      tppMuzzle.getWorldPosition(this._muzzleWorld);
+      tppMuzzle.parent.localToWorld(this._chamberWorld.copy(rig.chamberPos));
+    } else {
+      rig.muzzleFlash.getWorldPosition(this._muzzleWorld);
+      this.viewmodelContainer.localToWorld(
+        this._chamberWorld.copy(rig.chamberPos),
+      );
+    }
 
     this.tracerManager.spawnShell(this._chamberWorld, this.camera.rotation);
     this.tracerManager.spawnMuzzleSmoke(

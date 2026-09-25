@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { ExtendedTriangle, type MeshBVH } from 'three-mesh-bvh';
+import type { MeshBVH } from 'three-mesh-bvh';
+import { HERO, MOVES, TPP_CAMERA } from '../constants/character';
 import { INPUT } from '../constants/input';
 import type { Stance } from '../constants/player';
 import {
@@ -11,6 +12,12 @@ import {
   STRIDE,
 } from '../constants/player';
 import type { InputManager } from '../core/InputManager';
+
+export type ViewMode = 'fpv' | 'tpp';
+/** Special moves that take over locomotion (drive the matching clip). */
+export type MoveState = 'normal' | 'roll' | 'slide' | 'mantle';
+
+const wrapAngle = (a: number) => Math.atan2(Math.sin(a), Math.cos(a));
 
 export class PlayerController {
   public camera: THREE.PerspectiveCamera;
@@ -29,6 +36,17 @@ export class PlayerController {
     PLAYER.CAPSULE_START_Z,
   );
 
+  public viewMode: ViewMode = 'fpv';
+  public move: MoveState = 'normal';
+  /** Seconds since the current special move started. */
+  public moveTime = 0;
+  /** True for the frame the player touches down after real airtime. */
+  public justLanded = false;
+  /** World yaw the body faces (-Z forward at 0, like the camera). */
+  public facingYaw = 0;
+  /** Set by the game each frame: aiming or firing turns the body to the camera. */
+  public aimLock = false;
+
   private colliderLine: THREE.Line3 = new THREE.Line3();
 
   private tempBox: THREE.Box3 = new THREE.Box3();
@@ -38,10 +56,11 @@ export class PlayerController {
   private moveDir: THREE.Vector3 = new THREE.Vector3();
   private forward: THREE.Vector3 = new THREE.Vector3();
   private right: THREE.Vector3 = new THREE.Vector3();
-  private upAxis: THREE.Vector3 = new THREE.Vector3(0, 1, 0);
 
-  private pitch = 0;
+  public pitch = 0;
   public yaw = 0;
+  private freeYaw = 0;
+  private freePitch = 0;
 
   private recoverPitch = 0;
   private recoverYaw = 0;
@@ -56,19 +75,14 @@ export class PlayerController {
   private static readonly STANCES = STANCES;
   public stance: Stance = 'stand';
 
-  private static readonly LEAN_OFFSET = PLAYER.LEAN_OFFSET;
-  private static readonly LEAN_ROLL = PLAYER.LEAN_ROLL;
-  private static readonly LEAN_MARGIN = PLAYER.LEAN_MARGIN;
-  public lean = 0;
-  public leanLateral = 0;
-  private leanRay: THREE.Ray = new THREE.Ray();
-
   public bobTimer = 0;
 
   private static readonly STRIDE = STRIDE;
 
   private static readonly SPRINT_STRIDE = SPRINT_STRIDE_MULT;
   private strideAccum = 0;
+  private airTime = 0;
+  private lastAirTime = 0;
 
   public onFootstep?: (stance: Stance, isSprinting: boolean) => void;
 
@@ -83,6 +97,12 @@ export class PlayerController {
   private mantleRay: THREE.Ray = new THREE.Ray();
   private mantleLine: THREE.Line3 = new THREE.Line3();
 
+  private camRay: THREE.Ray = new THREE.Ray();
+  private camPivot: THREE.Vector3 = new THREE.Vector3();
+  private camBack: THREE.Vector3 = new THREE.Vector3();
+  private camRight: THREE.Vector3 = new THREE.Vector3();
+  private camEuler: THREE.Euler = new THREE.Euler(0, 0, 0, 'YXZ');
+
   constructor(
     fov = CAMERA.DEFAULT_FOV,
     aspect = window.innerWidth / window.innerHeight,
@@ -96,7 +116,7 @@ export class PlayerController {
       CAMERA.FAR,
     );
     this.updateCapsuleSegment();
-    this.syncCamera();
+    this.syncCamera(0);
   }
 
   private updateCapsuleSegment(): void {
@@ -108,8 +128,23 @@ export class PlayerController {
 
   public update(delta: number): void {
     const mouse = this.input.consumeMouseDelta();
-    this.yaw -= mouse.x;
-    this.pitch -= mouse.y;
+    // Free look (third-person): mouse orbits the camera, body keeps its aim.
+    const freeLook =
+      this.viewMode === 'tpp' && this.input.isAnyKeyDown(...INPUT.FREE_LOOK);
+    if (freeLook) {
+      this.freeYaw -= mouse.x;
+      this.freePitch = THREE.MathUtils.clamp(
+        this.freePitch - mouse.y,
+        -TPP_CAMERA.FREE_LOOK_PITCH_LIMIT,
+        TPP_CAMERA.FREE_LOOK_PITCH_LIMIT,
+      );
+    } else {
+      this.yaw -= mouse.x;
+      this.pitch -= mouse.y;
+      const k = 1 - Math.exp(-TPP_CAMERA.FREE_LOOK_RETURN_PER_S * delta);
+      this.freeYaw -= wrapAngle(this.freeYaw) * k;
+      this.freePitch -= this.freePitch * k;
+    }
 
     if (
       Math.abs(mouse.x) > PLAYER.MOUSE_RECENTER_EPS ||
@@ -136,13 +171,44 @@ export class PlayerController {
       Math.min(Math.PI / PLAYER.PITCH_LIMIT_DIVISOR, this.pitch),
     );
 
+    if (this.input.isKeyPressed(INPUT.VIEW_TOGGLE)) {
+      this.viewMode = this.viewMode === 'fpv' ? 'tpp' : 'fpv';
+      this.freeYaw = 0;
+      this.freePitch = 0;
+    }
+
+    const sin = Math.sin(this.yaw);
+    const cos = Math.cos(this.yaw);
+    this.forward.set(-sin, 0, -cos);
+    this.right.set(cos, 0, -sin);
+
+    this.moveDir.set(0, 0, 0);
+    if (this.move === 'normal') {
+      if (this.input.isAnyKeyDown(...INPUT.MOVE_FORWARD))
+        this.moveDir.add(this.forward);
+      if (this.input.isAnyKeyDown(...INPUT.MOVE_BACK))
+        this.moveDir.sub(this.forward);
+      if (this.input.isAnyKeyDown(...INPUT.MOVE_RIGHT))
+        this.moveDir.add(this.right);
+      if (this.input.isAnyKeyDown(...INPUT.MOVE_LEFT))
+        this.moveDir.sub(this.right);
+    }
+    const isMoving = this.moveDir.lengthSq() > PLAYER.MOVE_EPS_SQ;
+    if (isMoving) this.moveDir.normalize();
+
+    // C / Z toggle crouch / prone; while sprinting they slide / roll instead.
     const wantsCrouch = this.input.isKeyPressed(INPUT.CROUCH_TOGGLE);
     const wantsProne = this.input.isKeyPressed(INPUT.PRONE_TOGGLE);
-    if (!this.isMantling) {
-      if (wantsCrouch)
-        this.setStance(this.stance === 'crouch' ? 'stand' : 'crouch');
-      if (wantsProne)
-        this.setStance(this.stance === 'prone' ? 'stand' : 'prone');
+    if (this.move === 'normal') {
+      if (this.isSprinting && this.onGround && (wantsCrouch || wantsProne)) {
+        if (wantsCrouch) this.startSlide();
+        else this.startMove('roll');
+      } else {
+        if (wantsCrouch)
+          this.setStance(this.stance === 'crouch' ? 'stand' : 'crouch');
+        if (wantsProne)
+          this.setStance(this.stance === 'prone' ? 'stand' : 'prone');
+      }
     }
 
     const target = PlayerController.STANCES[this.stance];
@@ -150,25 +216,15 @@ export class PlayerController {
     this.height += (target.height - this.height) * stanceK;
     this.eyeOffset += (target.eyeOffset - this.eyeOffset) * stanceK;
 
-    const canLean =
-      !this.isMantling && !this.isSprinting && this.stance !== 'prone';
-    const leanInput = canLean
-      ? (this.input.isKeyDown(INPUT.LEAN_RIGHT) ? 1 : 0) -
-        (this.input.isKeyDown(INPUT.LEAN_LEFT) ? 1 : 0)
-      : 0;
-    this.lean +=
-      (leanInput - this.lean) * (1 - Math.exp(-PLAYER.LEAN_BLEND_RATE * delta));
-
-    this.camera.rotation.order = 'YXZ';
-    this.camera.rotation.y = this.yaw;
-    this.camera.rotation.x = this.pitch;
-
-    this.camera.rotation.z = -this.lean * PlayerController.LEAN_ROLL;
-
     const wantsSprint = this.input.isAnyKeyDown(...INPUT.SPRINT);
     const hasStamina = this.stamina > PLAYER.STAMINA_MIN_TO_SPRINT;
     this.isSprinting =
-      wantsSprint && hasStamina && this.onGround && this.stance === 'stand';
+      this.move === 'normal' &&
+      wantsSprint &&
+      hasStamina &&
+      this.onGround &&
+      this.stance === 'stand' &&
+      !this.aimLock;
 
     if (this.isSprinting) {
       this.stamina = Math.max(
@@ -182,67 +238,32 @@ export class PlayerController {
       );
     }
 
-    const currentSpeed = this.isSprinting ? this.sprintSpeed : target.speed;
-
-    const sin = Math.sin(this.yaw);
-    const cos = Math.cos(this.yaw);
-
-    this.forward.set(-sin, 0, -cos);
-    this.right.set(cos, 0, -sin);
-
-    this.moveDir.set(0, 0, 0);
-
-    if (!this.isMantling) {
-      if (this.input.isAnyKeyDown(...INPUT.MOVE_FORWARD))
-        this.moveDir.add(this.forward);
-      if (this.input.isAnyKeyDown(...INPUT.MOVE_BACK))
-        this.moveDir.sub(this.forward);
-      if (this.input.isAnyKeyDown(...INPUT.MOVE_RIGHT))
-        this.moveDir.add(this.right);
-      if (this.input.isAnyKeyDown(...INPUT.MOVE_LEFT))
-        this.moveDir.sub(this.right);
-    }
-
-    const isMoving = this.moveDir.lengthSq() > PLAYER.MOVE_EPS_SQ;
-    if (isMoving) {
-      this.moveDir.normalize();
-    }
-
-    if (this.isMantling) {
-      this.velocity.set(0, 0, 0);
-    } else {
-      const damping = this.onGround
-        ? PLAYER.DAMPING_GROUND
-        : PLAYER.DAMPING_AIR;
-      this.velocity.x +=
-        (this.moveDir.x * currentSpeed - this.velocity.x) * damping * delta;
-      this.velocity.z +=
-        (this.moveDir.z * currentSpeed - this.velocity.z) * damping * delta;
-    }
+    this.updateFacing(isMoving, delta);
+    this.updateVelocity(isMoving, delta);
 
     const spacePressed = this.input.isKeyPressed(INPUT.JUMP);
-    if (this.stance !== 'stand') {
-      if (spacePressed)
-        this.setStance(this.stance === 'prone' ? 'crouch' : 'stand');
-    } else {
-      const wantsMantle =
-        spacePressed || (!this.onGround && this.input.isKeyDown(INPUT.JUMP));
-
-      if (!this.isMantling && wantsMantle) {
-        this.tryStartMantle();
-      }
-      if (
-        !this.isMantling &&
-        this.onGround &&
-        this.input.isKeyDown(INPUT.JUMP)
-      ) {
-        this.velocity.y = this.jumpForce;
-        this.onGround = false;
+    if (this.move === 'normal') {
+      if (this.stance !== 'stand') {
+        if (spacePressed)
+          this.setStance(this.stance === 'prone' ? 'crouch' : 'stand');
+      } else {
+        const wantsMantle =
+          spacePressed || (!this.onGround && this.input.isKeyDown(INPUT.JUMP));
+        if (wantsMantle) this.tryStartMantle();
+        if (
+          this.move === 'normal' &&
+          this.onGround &&
+          this.input.isKeyDown(INPUT.JUMP)
+        ) {
+          this.velocity.y = this.jumpForce;
+          this.onGround = false;
+        }
       }
     }
 
     const prevX = this.capsulePosition.x;
     const prevZ = this.capsulePosition.z;
+    const wasOnGround = this.onGround;
 
     if (this.isMantling) {
       this.updateMantle(delta);
@@ -260,6 +281,13 @@ export class PlayerController {
         this.resolveCollision();
       }
     }
+
+    this.airTime = this.onGround ? 0 : this.airTime + delta;
+    this.justLanded =
+      this.onGround &&
+      !wasOnGround &&
+      this.lastAirTime >= PLAYER.LANDING_MIN_AIR_S;
+    this.lastAirTime = this.airTime;
 
     if (isMoving && this.onGround) {
       this.bobTimer +=
@@ -283,7 +311,70 @@ export class PlayerController {
     } else {
       this.strideAccum = 0;
     }
-    this.syncCamera();
+    this.syncCamera(delta);
+  }
+
+  /** FPV / aiming: body faces the camera. TPP: body turns toward travel. */
+  private updateFacing(isMoving: boolean, delta: number): void {
+    if (this.move !== 'normal') return;
+    let target: number | null = null;
+    if (this.viewMode === 'fpv' || this.aimLock) target = this.yaw;
+    else if (isMoving) target = Math.atan2(-this.moveDir.x, -this.moveDir.z);
+    if (target === null) return;
+    const k = Math.min(1, delta * HERO.TURN_RATE_PER_S);
+    this.facingYaw += wrapAngle(target - this.facingYaw) * k;
+  }
+
+  private updateVelocity(isMoving: boolean, delta: number): void {
+    this.moveTime += delta;
+    const fx = -Math.sin(this.facingYaw);
+    const fz = -Math.cos(this.facingYaw);
+
+    if (this.move === 'mantle') {
+      this.velocity.set(0, 0, 0);
+      return;
+    }
+    if (this.move === 'roll') {
+      const speed = this.moveTime < MOVES.ROLL_MOVE_S ? MOVES.ROLL_SPEED : 0;
+      this.velocity.x = fx * speed;
+      this.velocity.z = fz * speed;
+      if (this.moveTime >= MOVES.ROLL_DURATION_S) this.move = 'normal';
+      return;
+    }
+    if (this.move === 'slide') {
+      const decay = Math.exp(-MOVES.SLIDE_FRICTION_PER_S * delta);
+      this.velocity.x *= decay;
+      this.velocity.z *= decay;
+      if (this.moveTime >= MOVES.SLIDE_DURATION_S) {
+        this.move = 'normal';
+        this.setStance('stand');
+      }
+      return;
+    }
+
+    const speed = this.isSprinting
+      ? this.sprintSpeed
+      : PlayerController.STANCES[this.stance].speed;
+    const damping = this.onGround ? PLAYER.DAMPING_GROUND : PLAYER.DAMPING_AIR;
+    const vx = isMoving ? this.moveDir.x * speed : 0;
+    const vz = isMoving ? this.moveDir.z * speed : 0;
+    this.velocity.x += (vx - this.velocity.x) * damping * delta;
+    this.velocity.z += (vz - this.velocity.z) * damping * delta;
+  }
+
+  private startMove(move: MoveState): void {
+    this.move = move;
+    this.moveTime = 0;
+    this.isSprinting = false;
+  }
+
+  private startSlide(): void {
+    this.startMove('slide');
+    this.stance = 'crouch';
+    const fx = -Math.sin(this.facingYaw);
+    const fz = -Math.cos(this.facingYaw);
+    this.velocity.x = fx * this.sprintSpeed;
+    this.velocity.z = fz * this.sprintSpeed;
   }
 
   private resolveCollision(): void {
@@ -392,6 +483,9 @@ export class PlayerController {
     this.mantleStartPos.copy(this.capsulePosition);
     this.mantleTimer = 0;
     this.isMantling = true;
+    this.startMove('mantle');
+    // Climb faces the wall, whatever the body was doing.
+    this.facingYaw = this.yaw;
     this.velocity.set(0, 0, 0);
     this.onGround = false;
     return true;
@@ -426,6 +520,7 @@ export class PlayerController {
 
     if (t >= 1) {
       this.isMantling = false;
+      this.move = 'normal';
       this.onGround = true;
       this.velocity.set(0, 0, 0);
     }
@@ -471,45 +566,45 @@ export class PlayerController {
     return !blocked;
   }
 
-  private syncCamera(): void {
+  private syncCamera(_delta: number): void {
     const eyeY = this.capsulePosition.y + this.height + this.eyeOffset;
+    this.camEuler.set(this.pitch + this.freePitch, this.yaw + this.freeYaw, 0);
+    this.camera.quaternion.setFromEuler(this.camEuler);
 
-    const bobX = Math.cos(this.bobTimer * 0.5) * PLAYER.BOB_AMP_X;
-    const bobY = Math.abs(Math.sin(this.bobTimer)) * PLAYER.BOB_AMP_Y;
+    if (this.viewMode === 'fpv') {
+      const bobX = Math.cos(this.bobTimer * 0.5) * PLAYER.BOB_AMP_X;
+      const bobY = Math.abs(Math.sin(this.bobTimer)) * PLAYER.BOB_AMP_Y;
+      this.camera.position.set(
+        this.capsulePosition.x + (this.bobTimer > 0 ? bobX : 0),
+        eyeY + (this.bobTimer > 0 ? bobY : 0),
+        this.capsulePosition.z,
+      );
+      return;
+    }
 
-    this.camera.position.set(
-      this.capsulePosition.x + (this.bobTimer > 0 ? bobX : 0),
-      eyeY + (this.bobTimer > 0 ? bobY : 0),
+    // Over-the-shoulder: orbit a pivot above the head, pulled in by walls.
+    this.camPivot.set(
+      this.capsulePosition.x,
+      eyeY + TPP_CAMERA.HEIGHT_ABOVE_EYE_M,
       this.capsulePosition.z,
     );
+    this.camRight.set(1, 0, 0).applyQuaternion(this.camera.quaternion);
+    this.camPivot.addScaledVector(this.camRight, TPP_CAMERA.SHOULDER_RIGHT_M);
+    this.camBack.set(0, 0, 1).applyQuaternion(this.camera.quaternion);
 
-    this.leanLateral = 0;
-
-    if (Math.abs(this.lean) > PLAYER.LEAN_ACTIVE_EPS) {
-      let lateral = this.lean * PlayerController.LEAN_OFFSET;
-      const dir = Math.sign(lateral);
-
-      this.leanRay.origin.copy(this.camera.position);
-      this.leanRay.direction.copy(this.right).multiplyScalar(dir);
-      const reach = Math.abs(lateral) + PlayerController.LEAN_MARGIN;
-      const hit = this.bvh.raycastFirst(
-        this.leanRay,
-        THREE.DoubleSide,
-        0,
-        reach,
+    let dist: number = TPP_CAMERA.DISTANCE_M;
+    this.camRay.origin.copy(this.camPivot);
+    this.camRay.direction.copy(this.camBack);
+    const hit = this.bvh.raycastFirst(this.camRay, THREE.DoubleSide, 0, dist);
+    if (hit) {
+      dist = Math.max(
+        TPP_CAMERA.MIN_DISTANCE_M,
+        hit.distance - TPP_CAMERA.COLLISION_MARGIN_M,
       );
-      if (hit) {
-        const allowed = Math.max(
-          0,
-          hit.distance - PlayerController.LEAN_MARGIN,
-        );
-        lateral = dir * Math.min(Math.abs(lateral), allowed);
-      }
-
-      this.leanLateral = lateral;
-      this.camera.position.addScaledVector(this.right, lateral);
-      this.camera.position.y -= Math.abs(this.lean) * PLAYER.LEAN_DROP_PER_LEAN;
     }
+    this.camera.position
+      .copy(this.camPivot)
+      .addScaledVector(this.camBack, dist);
   }
 
   public applyRecoil(pitchDelta: number, yawDelta: number): void {

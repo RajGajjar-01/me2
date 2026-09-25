@@ -19,6 +19,8 @@ export class InputManager {
 
   private initKeyboard(): void {
     window.addEventListener('keydown', (e) => {
+      // Alt is free-look; don't let it focus the browser menu bar.
+      if (this.isLocked && e.key === 'Alt') e.preventDefault();
       const code = e.code ? e.code.toLowerCase() : '';
       const key = e.key ? e.key.toLowerCase() : '';
       if (code && !this.keys.has(code)) {

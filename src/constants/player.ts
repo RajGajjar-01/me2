@@ -35,12 +35,6 @@ export const PLAYER = {
   RECOVER_HOLD_S: 0.09,
   RECOVER_RATE: 9,
   STANCE_BLEND_RATE: 10,
-  LEAN_BLEND_RATE: 14,
-  LEAN_OFFSET: 0.38,
-  LEAN_ROLL: 0.22,
-  LEAN_MARGIN: 0.15,
-  LEAN_DROP_PER_LEAN: 0.03,
-  LEAN_ACTIVE_EPS: 0.001,
   BOB_RATE_WALK: 9,
   BOB_RATE_SPRINT: 14,
   BOB_AMP_X: 0.022,
@@ -54,11 +48,14 @@ export const PLAYER = {
   COLLISION_MARGIN: 0.02,
   NORMAL_EPS_SQ: 0.000001,
   PHYSICS_SUBSTEPS: 2,
+  // Airtime before touchdown counts as a landing (plays Jump_Land).
+  LANDING_MIN_AIR_S: 0.25,
 } as const;
 
 export const MANTLE = {
   MAX_HEIGHT: 1.5,
-  DURATION_S: 0.35,
+  // Matches ClimbUp_1m (0.667 s clip) played at ~1.3x.
+  DURATION_S: 0.5,
   MAX_WORLD_Y: 3.0,
   EYE_PROBE_HEIGHT: 1.0,
   WALL_DIST_BONUS: 0.55,

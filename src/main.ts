@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { loadHeroAssets } from './character/HeroModel';
 import { AUDIO } from './constants/audio';
 import { INPUT } from './constants/input';
 import { CAMERA, PLAYER } from './constants/player';
@@ -8,7 +9,7 @@ import { GraphicsSettings } from './core/GraphicsSettings';
 import { InputManager } from './core/InputManager';
 import { GameRenderer } from './core/Renderer';
 import { OutdoorRange } from './environment/OutdoorRange';
-import { PlayerBody } from './player/PlayerBody';
+import { PlayerCharacter } from './player/PlayerCharacter';
 import { PlayerController } from './player/PlayerController';
 import { CombatHUD } from './ui/CombatHUD';
 import { SettingsPanel } from './ui/SettingsPanel';
@@ -23,7 +24,7 @@ class GameApp {
   private range: OutdoorRange;
   private player!: PlayerController;
   private weapons!: WeaponManager;
-  private playerBody!: PlayerBody;
+  private playerCharacter!: PlayerCharacter;
   private telemetry: TacticalTelemetry;
   private combatHud!: CombatHUD;
   private clock: THREE.Clock = new THREE.Clock();
@@ -95,7 +96,6 @@ class GameApp {
       );
 
       this.renderer.scene.add(this.player.camera);
-      this.playerBody = new PlayerBody(this.renderer.scene, this.player);
 
       this.weapons = new WeaponManager(
         this.player.camera,
@@ -127,6 +127,12 @@ class GameApp {
         this.loaderFill.style.width = '95%';
       });
       this.setupWeaponEvents();
+      this.playerCharacter = new PlayerCharacter(
+        this.renderer.scene,
+        this.player,
+        await loadHeroAssets(),
+        this.weapons.weaponRigs,
+      );
 
       this.loaderStatus.textContent = 'PRE-HEATING GPU SHADER CACHE...';
       await new Promise((r) => requestAnimationFrame(r));
@@ -241,6 +247,15 @@ class GameApp {
         return;
       }
       if (this.input.isLocked) {
+        const aiming =
+          this.weapons.isAiming ||
+          this.input.isMouseDown(INPUT.FIRE_MOUSE_BUTTON);
+        const tpp = this.player.viewMode === 'tpp';
+        this.player.aimLock = aiming;
+        this.weapons.viewmodelContainer.visible = !tpp;
+        this.weapons.thirdPersonMuzzle = tpp
+          ? this.playerCharacter.muzzle(this.weapons.currentWeaponIndex)
+          : null;
         if (this.weapons) {
           this.weapons.stanceKickMult =
             this.player.stance === 'prone'
@@ -255,7 +270,11 @@ class GameApp {
           );
         }
         this.player.update(delta);
-        this.playerBody.update();
+        this.playerCharacter.update(
+          delta,
+          this.weapons.currentWeaponIndex,
+          aiming,
+        );
       }
 
       this.updateHUD(delta);
@@ -288,7 +307,11 @@ class GameApp {
     const speed = this.player.getSpeed();
     this.speedText.textContent = `${speed.toFixed(1)} M/S`;
 
-    if (!this.player.onGround) {
+    const move = this.player.move;
+    if (move !== 'normal') {
+      this.postureText.textContent =
+        move === 'mantle' ? 'CLIMB' : move.toUpperCase();
+    } else if (!this.player.onGround) {
       this.postureText.textContent = 'AIR';
     } else if (this.player.stance === 'prone') {
       this.postureText.textContent = 'PRONE';
