@@ -132,7 +132,7 @@ function run(view, weapon, aiming) {
       new THREE.Euler(player.pitch, player.yaw, 0, 'YXZ'),
     );
     player.camera.updateMatrixWorld(true);
-    pc.update(1 / 60, weapon, aiming);
+    pc.update(1 / 60, weapon);
   }
   scene.updateMatrixWorld(true);
   const rig = rigs[weapon];
@@ -157,6 +157,18 @@ function run(view, weapon, aiming) {
   return { R, L, ahead };
 }
 
+// Facing: at facingYaw 0 the body must look down -Z (same as the camera),
+// i.e. toes point -Z. Otherwise TPP shows the character's front.
+{
+  player.viewMode = 'tpp';
+  player.facingYaw = 0;
+  for (let f = 0; f < 10; f++) pc.update(1 / 60, 0);
+  scene.updateMatrixWorld(true);
+  const toes = bonePos('ball_l').sub(bonePos('foot_l')).setY(0).normalize();
+  console.log(`facing: toes horizontal z ${toes.z.toFixed(2)} (must be < 0)`);
+  assert.ok(toes.z < -0.8, 'hero must face -Z at facingYaw 0');
+}
+
 const TOLERANCE_M = 0.03;
 for (const view of ['fpv', 'tpp']) {
   for (let w = 0; w < WEAPON_DEFS.length; w++) {
@@ -179,7 +191,7 @@ for (const view of ['fpv', 'tpp']) {
 player.viewMode = 'fpv';
 player.stance = 'stand';
 player.velocity.set(0, 0, 0);
-for (let f = 0; f < 60; f++) pc.update(1 / 60, 0, false);
+for (let f = 0; f < 60; f++) pc.update(1 / 60, 0);
 scene.updateMatrixWorld(true);
 const headQ = () =>
   pc.hero.bone('Head').getWorldQuaternion(new THREE.Quaternion());
@@ -193,7 +205,7 @@ let lowestBone = '';
 let maxKneeOut = 0;
 for (let f = 0; f < 120; f++) {
   player.velocity.set(0, 0, f < 60 ? 0 : -0.5); // settle, then crawl forward
-  pc.update(1 / 60, 0, false);
+  pc.update(1 / 60, 0);
   scene.updateMatrixWorld(true);
   if (f < 60) continue; // wait for the lie-down blend
   pc.hero.model.traverse((o) => {

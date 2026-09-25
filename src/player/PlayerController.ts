@@ -241,7 +241,7 @@ export class PlayerController {
       );
     }
 
-    this.updateFacing(isMoving, delta);
+    this.updateFacing(delta);
     this.updateVelocity(isMoving, delta);
 
     const spacePressed = this.input.isKeyPressed(INPUT.JUMP);
@@ -318,19 +318,16 @@ export class PlayerController {
   }
 
   /** FPV / aiming: body faces the camera. TPP: body turns toward travel. */
-  private updateFacing(isMoving: boolean, delta: number): void {
+  private updateFacing(delta: number): void {
     if (this.move !== 'normal') return;
     // First-person: the camera sits in the body, so it can't lag behind.
     if (this.viewMode === 'fpv') {
       this.facingYaw = this.yaw;
       return;
     }
-    // Third-person: face the travel direction while moving, otherwise turn
-    // to where the camera looks (never stand facing the camera).
-    const target =
-      isMoving && !this.aimLock
-        ? Math.atan2(-this.moveDir.x, -this.moveDir.z)
-        : this.yaw;
+    // Third-person: the body always faces where the camera looks (moving
+    // backwards backpedals instead of turning round to face the camera).
+    const target = this.yaw;
     const k = Math.min(1, delta * HERO.TURN_RATE_PER_S);
     this.facingYaw += wrapAngle(target - this.facingYaw) * k;
   }

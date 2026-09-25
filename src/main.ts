@@ -253,7 +253,7 @@ class GameApp {
         const tpp = this.player.viewMode === 'tpp';
         this.player.aimLock = aiming;
         this.player.sprintBlocked = this.weapons.isReloading;
-        this.weapons.proneHold = this.player.stance === 'prone';
+        this.weapons.raisedHold = tpp || this.player.stance === 'prone';
         this.weapons.viewmodelContainer.visible = !tpp;
         this.weapons.thirdPersonMuzzle = tpp
           ? this.playerCharacter.muzzle(this.weapons.currentWeaponIndex)
@@ -272,11 +272,7 @@ class GameApp {
           );
         }
         this.player.update(delta);
-        this.playerCharacter.update(
-          delta,
-          this.weapons.currentWeaponIndex,
-          aiming,
-        );
+        this.playerCharacter.update(delta, this.weapons.currentWeaponIndex);
       }
 
       this.updateHUD(delta);

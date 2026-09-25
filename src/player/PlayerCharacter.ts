@@ -204,7 +204,7 @@ export class PlayerCharacter {
     return this.guns[weaponIndex].muzzle;
   }
 
-  public update(delta: number, weaponIndex: number, aiming: boolean): void {
+  public update(delta: number, weaponIndex: number): void {
     const p = this.player;
     const tpp = p.viewMode === 'tpp';
     this.head.scale.setScalar(tpp ? 1 : HERO.FPV_HEAD_SCALE);
@@ -237,12 +237,8 @@ export class PlayerCharacter {
     this.ikWeight += (holdsGun - this.ikWeight) * k;
     const w = this.ikWeight;
 
-    const pitch =
-      aiming || !tpp
-        ? p.pitch
-        : p.isSprinting
-          ? GUN_HOLD.SPRINT_PITCH
-          : GUN_HOLD.LOWERED_PITCH;
+    // Gun follows the crosshair; only a third-person sprint carries it low.
+    const pitch = tpp && p.isSprinting ? GUN_HOLD.SPRINT_PITCH : p.pitch;
     _qYaw.setFromAxisAngle(UP, p.facingYaw);
     _euler.set(pitch, p.facingYaw, 0);
     _qAim.setFromEuler(_euler);
@@ -496,6 +492,11 @@ export class PlayerCharacter {
       clip = 'Walk_Loop';
       rate = at(HERO.WALK_CLIP_SPEED);
     }
+    // The body faces the camera, so moving backwards plays the loop in
+    // reverse (backpedal) instead of walking forward while sliding back.
+    const fwdX = -Math.sin(p.facingYaw);
+    const fwdZ = -Math.cos(p.facingYaw);
+    if (moving && p.velocity.x * fwdX + p.velocity.z * fwdZ < 0) rate = -rate;
     hero.play(clip).timeScale = rate;
   }
 }
