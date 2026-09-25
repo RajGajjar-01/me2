@@ -91,9 +91,17 @@ export const TPP_CAMERA = {
 // The gun is posed from the hero's eyes exactly like the first-person
 // viewmodel (WEAPON_DEFS offsets), so both views hold it identically.
 export const GUN_HOLD = {
-  // Third-person carry pitch (rad) when not aiming/firing; sprint lower.
+  // Third-person carry when not aiming/firing: the gun pivots down (rad)
+  // about the right hand and angles across the body (yaw, rad). The
+  // two-handed sprint carry stays shallower so the left hand keeps reach
+  // while the sprint clip pumps the shoulders.
   LOW_READY_PITCH: -0.5,
-  SPRINT_PITCH: -0.75,
+  LOW_READY_YAW: 0.4,
+  // ...and drops toward the right hip, clear of the head (m, body frame).
+  LOW_READY_OFFSET: [0.04, -0.12, 0] as const,
+  SPRINT_PITCH: -0.4,
+  // One-handed sprint (small guns): muzzle raised beside the shoulder.
+  ONE_HAND_SPRINT_PITCH: 0.9,
   SPINE_PITCH_SHARE: 0.5,
   IK_BLEND_PER_S: 10,
   // Hand pose in the gun frame (x right, y up, -z forward): where the fingers

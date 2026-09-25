@@ -156,6 +156,8 @@ export const RELOAD_CUES = {
 export const GUN_MODELS = [
   {
     FILE: 'AssaultRifle_2',
+    // Sprint carry: small guns go one-handed (raised), long guns two-handed.
+    ONE_HANDED: false,
     TWIST: -0.7,
     LENGTH_M: 0.88,
     MUZZLE_MODEL: [3.82, 0.69, 0] as const,
@@ -167,6 +169,7 @@ export const GUN_MODELS = [
   },
   {
     FILE: 'Pistol_1',
+    ONE_HANDED: true,
     TWIST: 0,
     LENGTH_M: 0.22,
     MUZZLE_MODEL: [1.48, 0.56, 0] as const,
@@ -178,6 +181,7 @@ export const GUN_MODELS = [
   },
   {
     FILE: 'Shotgun_2',
+    ONE_HANDED: false,
     TWIST: -0.7,
     LENGTH_M: 1.0,
     MUZZLE_MODEL: [4.35, 0.22, 0] as const,

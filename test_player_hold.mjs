@@ -213,44 +213,84 @@ function run(view, weapon, aiming) {
   scene.remove(pc2.hero.root);
 }
 
-// Third-person sprint: gun rides the right hand, left arm runs free.
-{
+// Third-person sprint: long guns two-handed and carried low; small guns
+// one-handed (right hand), muzzle raised, left arm running free.
+for (const w of [0, 1]) {
   player.viewMode = 'tpp';
   player.stance = 'stand';
-  player.isSprinting = false;
-  player.velocity.set(0, 0, 0);
-  container.position.set(...WEAPON_DEFS[0].idleOffset);
-  for (let f = 0; f < 30; f++) pc.update(1 / 60, 0); // capture hand->gun
+  player.aimLock = false;
   player.isSprinting = true;
   player.velocity.set(0, 0, -8);
-  const gun = pc.guns[0];
-  const rel = [];
-  let leftFar = 0;
-  for (let f = 0; f < 90; f++) {
-    pc.update(1 / 60, 0);
-    scene.updateMatrixWorld(true);
-    if (f < 45) continue; // wait for the blend
-    const hand = pc.hero.bone('hand_r');
-    // The TPP gun is posed via its matrix, so read the world position.
-    const gunPos = new THREE.Vector3().setFromMatrixPosition(
-      gun.group.matrixWorld,
-    );
-    rel.push(gunPos.applyMatrix4(hand.matrixWorld.clone().invert()).length());
-    leftFar = Math.max(
-      leftFar,
-      bonePos('hand_l').distanceTo(
-        gripOf(gun.leftArm).getWorldPosition(new THREE.Vector3()),
-      ),
-    );
-  }
-  const spread = Math.max(...rel) - Math.min(...rel);
-  console.log(
-    `tpp sprint: gun-to-right-hand drift ${(spread * 100).toFixed(1)}cm  left hand off grip ${leftFar.toFixed(2)}m`,
+  container.position.set(...WEAPON_DEFS[w].idleOffset);
+  for (let f = 0; f < 60; f++) pc.update(1 / 60, w);
+  scene.updateMatrixWorld(true);
+  const gun = pc.guns[w];
+  const gunQ = gun.group.getWorldQuaternion(new THREE.Quaternion());
+  const R = measureHand('r', gripOf(gun.rightArm), gunQ);
+  const L = measureHand('l', gripOf(gun.leftArm), gunQ);
+  const leftOff = bonePos('hand_l').distanceTo(
+    gripOf(gun.leftArm).getWorldPosition(new THREE.Vector3()),
   );
-  assert.ok(spread < 0.01, 'sprinting gun must stay locked to the right hand');
-  assert.ok(leftFar > 0.15, 'left hand must be free while sprinting');
+  const muzzleUp =
+    gun.muzzle.getWorldPosition(new THREE.Vector3()).y -
+    gripOf(gun.rightArm).getWorldPosition(new THREE.Vector3()).y;
+  console.log(
+    `tpp sprint ${WEAPON_DEFS[w].name.padEnd(15)} wrist err R ${(R.err * 100).toFixed(1)}cm L ${(L.err * 100).toFixed(1)}cm  left hand off grip ${leftOff.toFixed(2)}m  muzzle ${muzzleUp > 0 ? 'above' : 'below'} hand ${Math.abs(muzzleUp).toFixed(2)}m`,
+  );
+  assert.ok(R.err < 0.03, 'right hand holds the gun while sprinting');
+  if (w === 1) {
+    assert.ok(leftOff > 0.15, 'small gun: left arm runs free');
+    assert.ok(muzzleUp > 0.05, 'small gun: muzzle raised');
+  } else {
+    assert.ok(L.err < 0.03, 'long gun: both hands stay on it');
+    assert.ok(muzzleUp < 0, 'long gun: carried low');
+  }
+}
+player.isSprinting = false;
+player.velocity.set(0, 0, 0);
+
+// Third-person low-ready: the gun must stay clear of the head, and the rifle
+// stance's torso twist must not turn the face off the aim.
+{
+  const { GUN_MODELS } = await import('./src/constants/weapons.ts');
+  player.viewMode = 'tpp';
+  player.stance = 'stand';
+  player.aimLock = false;
   player.isSprinting = false;
   player.velocity.set(0, 0, 0);
+  const headQ = () =>
+    pc.hero.bone('Head').getWorldQuaternion(new THREE.Quaternion());
+  let faceLocal = null;
+  for (const w of [1, 0, 1, 2]) {
+    container.position.set(...WEAPON_DEFS[w].idleOffset);
+    for (let f = 0; f < 60; f++) pc.update(1 / 60, w);
+    scene.updateMatrixWorld(true);
+    // Pistol has no torso twist: take its head frame as "looking forward".
+    if (!faceLocal) {
+      faceLocal = new THREE.Vector3(0, 0, -1).applyQuaternion(headQ().invert());
+      continue;
+    }
+    const gun = pc.guns[w];
+    const muzzle = gun.muzzle.getWorldPosition(new THREE.Vector3());
+    const stock = gun.muzzle.position
+      .clone()
+      .add(new THREE.Vector3(0, 0, GUN_MODELS[w].LENGTH_M))
+      .applyMatrix4(gun.group.matrixWorld);
+    const head = bonePos('Head');
+    const clearance = new THREE.Line3(muzzle, stock)
+      .closestPointToPoint(head, true, new THREE.Vector3())
+      .distanceTo(head);
+    const face = faceLocal.clone().applyQuaternion(headQ()).setY(0).normalize();
+    console.log(
+      `tpp low-ready ${WEAPON_DEFS[w].name.padEnd(15)} head clearance ${(clearance * 100).toFixed(0)}cm  face fwd ${(-face.z).toFixed(2)}  muzzle y-head ${(muzzle.y - head.y).toFixed(2)}m`,
+    );
+    assert.ok(clearance > 0.12, 'gun must not pass through the head');
+    assert.ok(
+      -face.z > 0.9,
+      'face must look along the aim, not off to the side',
+    );
+    assert.ok(muzzle.y < head.y - 0.3, 'low-ready muzzle points down');
+  }
 }
 
 const TOLERANCE_M = 0.03;

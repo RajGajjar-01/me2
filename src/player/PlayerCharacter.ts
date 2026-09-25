@@ -23,6 +23,7 @@ const _qYaw = new THREE.Quaternion();
 const _euler = new THREE.Euler(0, 0, 0, 'YXZ');
 const _m = new THREE.Matrix4();
 const _mGun = new THREE.Matrix4();
+const _m2 = new THREE.Matrix4();
 const _quat = new THREE.Quaternion();
 const _scale = new THREE.Vector3();
 const _one = new THREE.Vector3(1, 1, 1);
@@ -82,6 +83,10 @@ export class PlayerCharacter {
   /** Their clean animated pose (the mixer only rewrites changed values). */
   private animPose = new Map<THREE.Object3D, THREE.Quaternion>();
   private ikWeight = 1;
+  /** Left hand's own IK weight (free during a one-handed sprint). */
+  private leftWeight = 1;
+  /** Third-person carry pitch (rad) or null when the gun is up on target. */
+  private carry: number | null = null;
   /** 0 standing .. 1 lying face-down. */
   private proneT = 0;
   private crawlPhase = 0;
@@ -93,6 +98,7 @@ export class PlayerCharacter {
   private static readonly POLE_RIGHT = tuple(GUN_HOLD.POLE_RIGHT);
   private static readonly POLE_LEFT = tuple(GUN_HOLD.POLE_LEFT);
   private static readonly EYE = tuple(HERO.FPV_EYE_OFFSET);
+  private static readonly LOW_READY = tuple(GUN_HOLD.LOW_READY_OFFSET);
   private grips: { right: HandGrip; left: HandGrip };
 
   constructor(
@@ -233,21 +239,28 @@ export class PlayerCharacter {
     root.updateMatrixWorld(true);
 
     const k = Math.min(1, delta * GUN_HOLD.IK_BLEND_PER_S);
-    // Hands leave the IK during special moves and a third-person sprint:
-    // the arms run the clip and the gun rides the right hand (PUBG sprint
-    // carry, left arm free). First-person keeps both hands on the gun.
-    const holdsGun = p.move === 'normal' && !(tpp && p.isSprinting) ? 1 : 0;
+    // Hands leave the IK during special moves (the arms run the clip and
+    // the gun rides the right hand). A third-person sprint with a small gun
+    // frees only the left arm; long guns stay two-handed.
+    const oneHandSprint =
+      tpp && p.isSprinting && GUN_MODELS[weaponIndex].ONE_HANDED;
+    const holdsGun = p.move === 'normal' ? 1 : 0;
+    const leftHolds = holdsGun && !oneHandSprint ? 1 : 0;
     this.ikWeight += (holdsGun - this.ikWeight) * k;
+    this.leftWeight += (leftHolds - this.leftWeight) * k;
     const w = this.ikWeight;
 
-    // Third-person low-ready (PUBG): gun angled down across the body; it
-    // comes up to the crosshair only while aiming or firing.
-    const pitch =
-      !tpp || p.aimLock
-        ? p.pitch
-        : p.isSprinting
-          ? GUN_HOLD.SPRINT_PITCH
-          : GUN_HOLD.LOW_READY_PITCH;
+    // The aim frame always follows the crosshair; the third-person carry
+    // (low-ready / sprint) is applied later by pivoting the gun at the hand.
+    const pitch = p.pitch;
+    this.carry =
+      tpp && !p.aimLock
+        ? oneHandSprint
+          ? GUN_HOLD.ONE_HAND_SPRINT_PITCH
+          : p.isSprinting
+            ? GUN_HOLD.SPRINT_PITCH
+            : GUN_HOLD.LOW_READY_PITCH
+        : null;
     _qYaw.setFromAxisAngle(UP, p.facingYaw);
     _euler.set(pitch, p.facingYaw, 0);
     _qAim.setFromEuler(_euler);
@@ -255,8 +268,10 @@ export class PlayerCharacter {
     if (w > 1e-3) {
       // Rifle stance: twist the torso (left shoulder forward) and bend the
       // upper spine with the aim so the shoulders follow the gun.
-      _q.setFromAxisAngle(UP, GUN_MODELS[weaponIndex].TWIST * w);
-      rotateWorld(this.chest, _q);
+      const twist = GUN_MODELS[weaponIndex].TWIST * w;
+      rotateWorld(this.chest, _q.setFromAxisAngle(UP, twist));
+      // Counter-turn the neck so the face stays on the aim, not 40deg off.
+      rotateWorld(this.neck, _q.setFromAxisAngle(UP, -twist));
       const right = _b.copy(RIGHT).applyQuaternion(_qYaw);
       _q.setFromAxisAngle(right, pitch * GUN_HOLD.SPINE_PITCH_SHARE * w);
       rotateWorld(this.chest, _q);
@@ -312,6 +327,22 @@ export class PlayerCharacter {
       .compose(_eye, _qAim, _one)
       .multiply(container.matrix)
       .multiply(rig.root.matrix);
+    if (this.carry !== null) {
+      // Low-ready: swing the gun down and across the body about the right
+      // grip, so the stock never swings up into the face.
+      const grip = _b.copy(gun.rightArm.position).applyMatrix4(_mGun);
+      const right = _c.set(1, 0, 0).applyQuaternion(_qYaw);
+      _quat
+        .setFromAxisAngle(UP, GUN_HOLD.LOW_READY_YAW)
+        .multiply(_q.setFromAxisAngle(right, this.carry - this.player.pitch));
+      _m.makeRotationFromQuaternion(_quat);
+      _mGun
+        .premultiply(_m2.makeTranslation(-grip.x, -grip.y, -grip.z))
+        .premultiply(_m)
+        .premultiply(_m2.makeTranslation(grip.x, grip.y, grip.z));
+      const drop = _b.copy(PlayerCharacter.LOW_READY).applyQuaternion(_qYaw);
+      _mGun.premultiply(_m2.makeTranslation(drop.x, drop.y, drop.z));
+    }
 
     const w = this.ikWeight;
     if (w < 0.999 && this.hasHandToGun) {
@@ -350,17 +381,27 @@ export class PlayerCharacter {
       rightGrip.getWorldPosition(_tR),
       poleR,
     );
-    this.gripHand(left, this.grips.left, leftGrip.getWorldPosition(_tL), poleL);
-    if (w < 0.999) {
-      // Blend IK result back toward the animated arms (e.g. mid-roll).
-      for (const arm of [right, left]) {
-        for (const bone of [arm.upper, arm.lower, arm.hand]) {
-          _q.copy(bone.quaternion); // IK result
-          bone.quaternion.copy(this.animPose.get(bone)!).slerp(_q, w);
-        }
-      }
-      this.chest.updateMatrixWorld(true);
+    this.blendArm(right, w);
+    const wl = Math.min(w, this.leftWeight);
+    if (wl > 1e-3) {
+      this.gripHand(
+        left,
+        this.grips.left,
+        leftGrip.getWorldPosition(_tL),
+        poleL,
+      );
+      this.blendArm(left, wl);
     }
+  }
+
+  /** Blend an IK'd arm back toward its animated pose (e.g. mid-roll). */
+  private blendArm(arm: Arm, w: number): void {
+    if (w >= 0.999) return;
+    for (const bone of [arm.upper, arm.lower, arm.hand]) {
+      _q.copy(bone.quaternion); // IK result
+      bone.quaternion.copy(this.animPose.get(bone)!).slerp(_q, w);
+    }
+    arm.upper.updateMatrixWorld(true);
   }
 
   private gripHand(
