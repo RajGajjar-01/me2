@@ -1,0 +1,26 @@
+// World / renderer tuning: fog, pixel ratio, camera, HUD thresholds.
+
+export const WORLD = {
+  FOG_COLOR: 0xa5c7eb,
+  FOG_DENSITY: 0.0035,
+  PIXEL_RATIO_MAX: 1.5,
+  TONE_MAPPING_EXPOSURE: 1.05,
+  FRAME_DELTA_MAX_S: 0.05,
+  HUD_FPS_WINDOW_S: 0.35,
+} as const;
+
+export const TARGETS = {
+  HEAD_POINTS: 100,
+  BODY_POINTS: 50,
+  HINGE_VELOCITY_ON_HIT: -12.0,
+  HINGE_STIFFNESS: 85,
+  HINGE_DAMPING: 12,
+  HINGE_MIN: -Math.PI / 2.2,
+  HINGE_MAX: 0.2,
+  DUMMY_MAX_HEALTH: 100,
+  DUMMY_PATROL_SPEED: 2.2,
+  DUMMY_HEADSHOT_DAMAGE: 100,
+  DUMMY_LEGS_DAMAGE_MULT: 0.6,
+  DUMMY_RESPAWN_S: 3.5,
+  DUMMY_FLINCH_VELOCITY: -8.0,
+} as const;

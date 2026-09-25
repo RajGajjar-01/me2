@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
-import { MODELS } from '../assets';
 import type { SoundEngine } from '../audio/SoundEngine';
+import { MODELS } from '../constants/assets';
+import { TARGETS } from '../constants/world';
 
 export interface DummyEntity {
   id: number;
@@ -83,7 +84,11 @@ export class DummyManager {
       {
         pos: new THREE.Vector3(0, 0, -20),
         name: 'Lateral Runner',
-        patrol: { minX: -7, maxX: 7, speed: 2.2 },
+        patrol: {
+          minX: -7,
+          maxX: 7,
+          speed: TARGETS.DUMMY_PATROL_SPEED,
+        },
       },
       { pos: new THREE.Vector3(-14, 0, -18), name: 'Flank Sentry' },
       { pos: new THREE.Vector3(26, 4.2, -26), name: 'Tower Sniper' },
@@ -140,8 +145,8 @@ export class DummyManager {
       patrolMinX: patrol?.minX,
       patrolMaxX: patrol?.maxX,
       patrolDir: 1,
-      health: 100,
-      maxHealth: 100,
+      health: TARGETS.DUMMY_MAX_HEALTH,
+      maxHealth: TARGETS.DUMMY_MAX_HEALTH,
       isDead: false,
       respawnTimer: 0,
       flinchAngle: 0,
@@ -295,17 +300,18 @@ export class DummyManager {
     const isLegs = data.zone === 'legs';
 
     let damage = weaponDamage;
-    if (isHeadshot) damage = 100;
-    else if (isLegs) damage = Math.round(weaponDamage * 0.6);
+    if (isHeadshot) damage = TARGETS.DUMMY_HEADSHOT_DAMAGE;
+    else if (isLegs)
+      damage = Math.round(weaponDamage * TARGETS.DUMMY_LEGS_DAMAGE_MULT);
 
     dummy.health = Math.max(0, dummy.health - damage);
     const isKill = dummy.health <= 0;
 
-    dummy.flinchVelocity = -8.0;
+    dummy.flinchVelocity = TARGETS.DUMMY_FLINCH_VELOCITY;
 
     if (isKill) {
       dummy.isDead = true;
-      dummy.respawnTimer = 3.5;
+      dummy.respawnTimer = TARGETS.DUMMY_RESPAWN_S;
       if (isHeadshot) {
         this.sound.playHeadshotHit();
       } else {

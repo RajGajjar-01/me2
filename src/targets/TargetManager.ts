@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { SoundEngine } from '../audio/SoundEngine';
+import { TARGETS } from '../constants/world';
 
 export interface TargetEntity {
   group: THREE.Group;
@@ -128,9 +129,9 @@ export class TargetManager {
 
     const target = this.targets[data.targetIndex];
     const isHead = !!data.isHead;
-    const points = isHead ? 100 : 50;
+    const points = isHead ? TARGETS.HEAD_POINTS : TARGETS.BODY_POINTS;
 
-    target.hingeVelocity = -12.0;
+    target.hingeVelocity = TARGETS.HINGE_VELOCITY_ON_HIT;
     this.totalHits++;
 
     this.sound.playTargetHit();
@@ -143,8 +144,8 @@ export class TargetManager {
   }
 
   public update(delta: number): void {
-    const stiffness = 85;
-    const damping = 12;
+    const stiffness = TARGETS.HINGE_STIFFNESS;
+    const damping = TARGETS.HINGE_DAMPING;
 
     this.targets.forEach((t) => {
       const hinge = t.group.children[1] as THREE.Group;
@@ -153,7 +154,10 @@ export class TargetManager {
           (-t.hingeAngle * stiffness - t.hingeVelocity * damping) * delta;
         t.hingeAngle += t.hingeVelocity * delta;
 
-        t.hingeAngle = Math.max(-Math.PI / 2.2, Math.min(0.2, t.hingeAngle));
+        t.hingeAngle = Math.max(
+          TARGETS.HINGE_MIN,
+          Math.min(TARGETS.HINGE_MAX, t.hingeAngle),
+        );
         hinge.rotation.x = t.hingeAngle;
       }
     });

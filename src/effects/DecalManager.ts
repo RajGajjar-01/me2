@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { EFFECTS } from '../constants/effects';
 
 interface PooledDecal {
   group: THREE.Group;
@@ -15,11 +16,11 @@ interface PooledSpark {
 export class DecalManager {
   private decalPool: PooledDecal[] = [];
   private decalIndex = 0;
-  private readonly MAX_DECALS = 40;
+  private readonly MAX_DECALS = EFFECTS.MAX_DECALS;
 
   private sparkPool: PooledSpark[] = [];
   private sparkIndex = 0;
-  private readonly MAX_SPARKS = 60;
+  private readonly MAX_SPARKS = EFFECTS.MAX_SPARKS;
 
   private decalMat = new THREE.MeshBasicMaterial({
     color: 0x111111,

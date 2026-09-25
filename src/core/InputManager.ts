@@ -1,3 +1,5 @@
+import { INPUT } from '../constants/input';
+
 export class InputManager {
   private keys: Set<string> = new Set();
   private justPressedKeys: Set<string> = new Set();
@@ -6,7 +8,7 @@ export class InputManager {
   private wheelDelta = 0;
   private mouseButtons: Set<number> = new Set();
   public isLocked = false;
-  public sensitivity = 0.0022;
+  public sensitivity = INPUT.SENSITIVITY;
 
   public onLockChange?: (locked: boolean) => void;
 
