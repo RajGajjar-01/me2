@@ -147,10 +147,8 @@ function finishAssets(
   obj: THREE.Object3D,
   animJson: Record<string, THREE.AnimationClipJSON>,
 ): HeroAssets {
-  // Stand on the ground and face -Z (three's forward, same as the camera).
+  // Face -Z (three's forward, same as the camera).
   obj.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(obj);
-  obj.position.y = -box.min.y + HERO.FOOT_LIFT_M;
   const template = new THREE.Group();
   template.add(obj);
   // Facing from bones only (toes point forward), not mesh bounds: skinned
@@ -185,7 +183,33 @@ function finishAssets(
     clips[name] = clip;
   }
 
+  // Stand on the ground: the idle pose's lowest vertex (the soles) at y = 0.
+  // Measured per body, since each rig's clips sit its feet differently.
+  const probe = SkeletonUtils.clone(obj);
+  new THREE.AnimationMixer(probe)
+    .clipAction(clips.Idle_Loop)
+    .play()
+    .getMixer()
+    .update(0);
+  obj.position.y = -lowestPoint(probe);
+
   return { template, clips };
+}
+
+function lowestPoint(root: THREE.Object3D): number {
+  root.updateMatrixWorld(true);
+  const v = new THREE.Vector3();
+  let min = Number.POSITIVE_INFINITY;
+  root.traverse((o) => {
+    const m = o as THREE.SkinnedMesh;
+    if (!m.isSkinnedMesh) return;
+    const pos = m.geometry.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      m.applyBoneTransform(i, v.fromBufferAttribute(pos, i));
+      min = Math.min(min, v.applyMatrix4(m.matrixWorld).y);
+    }
+  });
+  return min;
 }
 
 /** One animated character: its own skeleton, mixer and actions. */

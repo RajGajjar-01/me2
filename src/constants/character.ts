@@ -47,8 +47,6 @@ export const HERO_ONE_SHOTS: readonly HeroClip[] = [
 export const HERO = {
   // UAL rest pelvis height (m); clip pelvis translation is rescaled to the rig.
   UAL_PELVIS_REST_M: 0.918,
-  // UAL clips put the soles 1-4 cm below rig zero.
-  FOOT_LIFT_M: 0.035,
   // Quaternius ships DirectX (Unreal) normal maps; three.js reads OpenGL, so
   // green is flipped. Wrong green shows as seams at UV borders (shoulders).
   NORMAL_SCALE: [1, -1] as const,
