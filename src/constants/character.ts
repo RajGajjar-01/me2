@@ -44,6 +44,18 @@ export const HERO_ONE_SHOTS: readonly HeroClip[] = [
   'ClimbUp_1m',
 ];
 
+// Arm actions that play on the upper body only while moving, so the legs keep
+// their walk/sprint/crouch cycle instead of gliding in a standing pose.
+export const HERO_UPPER_CLIPS = [
+  'Punch_Jab',
+  'Punch_Cross',
+  'Pistol_Shoot',
+  'Pistol_Reload',
+  'Pistol_Aim_Neutral',
+] as const satisfies readonly HeroClip[];
+
+export type HeroUpperClip = (typeof HERO_UPPER_CLIPS)[number];
+
 export const HERO = {
   // UAL rest pelvis height (m); clip pelvis translation is rescaled to the rig.
   UAL_PELVIS_REST_M: 0.918,
@@ -77,6 +89,10 @@ export const HERO = {
   CRAWL_HIP_OUT: 0.7,
   CRAWL_KNEE_BEND: 1.1,
   MOVE_ANIM_MIN_SPEED: 0.4,
+  // Upper-body layer: this bone and everything under it (spine, arms, head).
+  UPPER_BODY_BONE: 'spine_01',
+  // Upper actions outweigh the locomotion clip on shared bones (~99.9%).
+  UPPER_LAYER_WEIGHT: 1000,
   TURN_RATE_PER_S: 12,
   LAND_TIME_SCALE: 1.6,
   // First-person eye relative to the Head bone (x right, y up, -z forward).

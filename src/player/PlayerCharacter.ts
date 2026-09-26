@@ -11,7 +11,9 @@ import {
   FISTS,
   GUN_HOLD,
   HERO,
+  HERO_UPPER_CLIPS,
   type HeroClip,
+  type HeroUpperClip,
   MOVES,
 } from '../constants/character';
 import { MANTLE } from '../constants/player';
@@ -799,6 +801,7 @@ export class PlayerCharacter {
     const moving = speed > HERO.MOVE_ANIM_MIN_SPEED;
 
     // Special moves own the whole body.
+    if (p.move !== 'normal') hero.stopUpper();
     if (p.move === 'mantle') {
       if (this.lastMove !== 'mantle') {
         hero.playOnce('ClimbUp_1m');
@@ -824,6 +827,13 @@ export class PlayerCharacter {
     if (this.lastMove === 'slide') hero.playOnce('Slide_Exit');
     this.lastMove = p.move;
 
+    // Standing still, arm actions own the whole body (punch footwork). Moving,
+    // they play on the upper body and the legs keep their locomotion cycle.
+    const layered = moving && p.onGround && p.stance !== 'prone';
+    if (layered) hero.carryToUpper();
+    const once = (clip: HeroUpperClip, fade: number) =>
+      layered ? hero.playUpper(clip, fade, true) : hero.playOnce(clip, fade);
+
     // erangel-run pistol: shoot / reload one-shots own the body until done.
     const reloadStarted = reloading && !this.wasReloading;
     this.wasReloading = reloading;
@@ -833,20 +843,36 @@ export class PlayerCharacter {
     this.punchPending = false;
     if (fists) {
       if (punch) {
-        hero.playOnce(
+        once(
           this.nextPunchCross ? 'Punch_Cross' : 'Punch_Jab',
           FISTS.PUNCH_FADE_S,
         );
         this.nextPunchCross = !this.nextPunchCross;
       }
-      if (hero.isRunning('Punch_Jab') || hero.isRunning('Punch_Cross')) return;
+      if (
+        !layered &&
+        (hero.isRunning('Punch_Jab') || hero.isRunning('Punch_Cross'))
+      )
+        return;
     }
     if (pistol) {
-      if (reloadStarted)
-        hero.playOnce('Pistol_Reload', ERANGEL_PISTOL.RELOAD_FADE_S);
-      else if (shot) hero.playOnce('Pistol_Shoot', ERANGEL_PISTOL.SHOOT_FADE_S);
-      if (hero.isRunning('Pistol_Reload') || hero.isRunning('Pistol_Shoot'))
+      if (reloadStarted) once('Pistol_Reload', ERANGEL_PISTOL.RELOAD_FADE_S);
+      else if (shot) once('Pistol_Shoot', ERANGEL_PISTOL.SHOOT_FADE_S);
+      if (
+        !layered &&
+        (hero.isRunning('Pistol_Reload') || hero.isRunning('Pistol_Shoot'))
+      )
         return;
+    }
+
+    // Upper layer: let a running arm action finish; moving with the pistol
+    // up, hold the aim pose over the legs.
+    const armBusy = HERO_UPPER_CLIPS.some(
+      (c) => c !== 'Pistol_Aim_Neutral' && hero.isUpperRunning(c),
+    );
+    if (!armBusy) {
+      if (layered && pistol && p.aimLock) hero.playUpper('Pistol_Aim_Neutral');
+      else hero.stopUpper();
     }
 
     // Let short one-shots finish; moving cuts them short (except the climb).
@@ -877,8 +903,8 @@ export class PlayerCharacter {
     } else if (p.stance === 'crouch') {
       clip = moving ? 'Crouch_Fwd_Loop' : 'Crouch_Idle_Loop';
       if (moving) rate = at(HERO.CROUCH_CLIP_SPEED);
-    } else if (pistol && p.aimLock) {
-      clip = 'Pistol_Aim_Neutral'; // erangel-run: aiming overrides moving
+    } else if (pistol && p.aimLock && !moving) {
+      clip = 'Pistol_Aim_Neutral';
     } else if (pistol && !moving) {
       clip = 'Pistol_Idle_Loop';
     } else if (!moving) {

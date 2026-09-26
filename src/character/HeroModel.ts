@@ -16,13 +16,17 @@ import {
   HERO,
   HERO_CLIPS,
   HERO_ONE_SHOTS,
+  HERO_UPPER_CLIPS,
   type HeroClip,
+  type HeroUpperClip,
 } from '../constants/character';
 import { GRAPHICS } from '../constants/graphics';
 
 export interface HeroAssets {
   template: THREE.Group;
   clips: Record<HeroClip, THREE.AnimationClip>;
+  /** HERO_UPPER_CLIPS masked to the upper body (see HERO.UPPER_BODY_BONE). */
+  upperClips: Record<HeroUpperClip, THREE.AnimationClip>;
 }
 
 let assetsPromise: Promise<HeroAssets> | null = null;
@@ -183,6 +187,19 @@ function finishAssets(
     clips[name] = clip;
   }
 
+  const upperBones = new Set<string>();
+  obj
+    .getObjectByName(HERO.UPPER_BODY_BONE)
+    ?.traverse((b) => upperBones.add(b.name));
+  const upperClips = {} as Record<HeroUpperClip, THREE.AnimationClip>;
+  for (const name of HERO_UPPER_CLIPS) {
+    const clip = clips[name].clone();
+    clip.tracks = clip.tracks.filter((t) =>
+      upperBones.has(t.name.slice(0, t.name.lastIndexOf('.'))),
+    );
+    upperClips[name] = clip;
+  }
+
   // Stand on the ground: the idle pose's lowest vertex (the soles) at y = 0.
   // Measured per body, since each rig's clips sit its feet differently.
   const probe = SkeletonUtils.clone(obj);
@@ -193,7 +210,7 @@ function finishAssets(
     .update(0);
   obj.position.y = -lowestPoint(probe);
 
-  return { template, clips };
+  return { template, clips, upperClips };
 }
 
 function lowestPoint(root: THREE.Object3D): number {
@@ -225,6 +242,9 @@ export class Hero {
   public readonly mixer: THREE.AnimationMixer;
   public readonly actions: Record<HeroClip, THREE.AnimationAction>;
   public current: THREE.AnimationAction | null = null;
+  /** Upper-body layer over `current` (arm actions while the legs move). */
+  public readonly upperActions: Record<HeroUpperClip, THREE.AnimationAction>;
+  public upper: THREE.AnimationAction | null = null;
 
   constructor(assets: HeroAssets) {
     this.model = SkeletonUtils.clone(assets.template);
@@ -240,6 +260,14 @@ export class Hero {
         action.clampWhenFinished = true;
       }
       this.actions[name] = action;
+    }
+    this.upperActions = {} as Record<HeroUpperClip, THREE.AnimationAction>;
+    for (const name of HERO_UPPER_CLIPS) {
+      const action = this.mixer.clipAction(assets.upperClips[name]);
+      action.setLoop(THREE.LoopOnce, 1);
+      action.clampWhenFinished = true;
+      action.weight = HERO.UPPER_LAYER_WEIGHT;
+      this.upperActions[name] = action;
     }
   }
 
@@ -271,6 +299,44 @@ export class Hero {
   public isRunning(name: HeroClip): boolean {
     const a = this.actions[name];
     return a === this.current && a.isRunning();
+  }
+
+  /** Play an arm action on the upper body; `restart` replays it if current. */
+  public playUpper(
+    name: HeroUpperClip,
+    fade: number = HERO.FADE_FAST_S,
+    restart = false,
+  ): void {
+    const next = this.upperActions[name];
+    if (next === this.upper) {
+      if (restart) next.reset().play();
+      return;
+    }
+    this.upper?.fadeOut(fade);
+    next.reset().setEffectiveTimeScale(1).fadeIn(fade).play();
+    this.upper = next;
+  }
+
+  public stopUpper(fade: number = HERO.FADE_FAST_S): void {
+    this.upper?.fadeOut(fade);
+    this.upper = null;
+  }
+
+  public isUpperRunning(name: HeroUpperClip): boolean {
+    const a = this.upperActions[name];
+    return a === this.upper && a.isRunning();
+  }
+
+  /**
+   * Hand a running full-body arm action over to the upper layer at the same
+   * time, so the legs can switch to locomotion without cutting it short.
+   */
+  public carryToUpper(): void {
+    const c = this.current;
+    const name = c?.getClip().name as HeroUpperClip;
+    if (!c?.isRunning() || !(name in this.upperActions)) return;
+    this.playUpper(name, 0, true);
+    this.upperActions[name].time = c.time;
   }
 
   public update(delta: number): void {

@@ -621,6 +621,46 @@ for (const view of ['fpv', 'tpp']) {
   assert.ok(!anyGunShown, 'fists: no gun in hand');
 }
 
+// Arm actions while moving must not freeze the legs (gliding): the legs keep
+// their locomotion cycle and the action plays on the upper body.
+for (const [label, weapon, sprinting, speed, act] of [
+  ['punch sprint', 3, true, 8.25, () => pc.onPunch()],
+  ['pistol shot walk', 1, false, 0.97, () => pc.onShot()],
+  ['pistol reload walk', 1, false, 0.97, null],
+]) {
+  player.viewMode = 'tpp';
+  player.stance = 'stand';
+  player.onGround = true;
+  player.move = 'normal';
+  player.facingYaw = 0;
+  player.isSprinting = sprinting;
+  player.aimLock = weapon === 1 && !!act;
+  player.velocity.set(0, 0, -speed);
+  for (let f = 0; f < 30; f++) pc.update(1 / 60, weapon, false);
+  act?.();
+  const thigh = pc.hero.bone('thigh_l');
+  const qs = [];
+  let upper = '';
+  for (let f = 0; f < 30; f++) {
+    pc.update(1 / 60, weapon, !act);
+    if (f === 5) upper = pc.hero.upper?.getClip().name ?? 'none';
+    qs.push(thigh.getWorldQuaternion(new THREE.Quaternion()));
+  }
+  let swing = 0;
+  for (const q of qs) swing = Math.max(swing, qs[0].angleTo(q));
+  const legs = pc.hero.current?.getClip().name;
+  console.log(
+    `${label}: legs ${legs}, upper ${upper}, thigh swing ${((swing * 180) / Math.PI).toFixed(0)}deg`,
+  );
+  assert.match(legs, /Walk|Sprint/, `${label}: legs keep locomotion`);
+  assert.notEqual(upper, 'none', `${label}: action on the upper body`);
+  assert.ok(swing > (10 * Math.PI) / 180, `${label}: legs keep swinging`);
+}
+player.isSprinting = false;
+player.aimLock = false;
+player.velocity.set(0, 0, 0);
+for (let f = 0; f < 60; f++) pc.update(1 / 60, 0, false);
+
 const TOLERANCE_M = 0.03;
 for (const view of ['fpv', 'tpp']) {
   for (const w of [0, 2]) {
