@@ -4,8 +4,8 @@ Everything comes from erangel-run's packed assets (assets/*.js), never from the
 raw Quaternius libraries: new clips get packed in erangel-run first
 (erangel-run/scripts/pack-animations.py), then synced here.
 
-Quaternius license forbids redistributing the raw asset files, so the output
-folder is gitignored. Run this once after cloning: python3 scripts/sync-quaternius.py
+The output is committed (Quaternius assets are CC0, credited in README.md), so
+this only needs re-running when the packed assets in erangel-run change.
 """
 
 import base64

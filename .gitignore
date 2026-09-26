@@ -1,5 +1,4 @@
 node_modules/
 dist/
 
-# Quaternius assets (license forbids redistribution) — regenerate with scripts/sync-quaternius.py
-src/assets/character/
+__pycache__/
