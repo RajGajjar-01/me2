@@ -214,3 +214,19 @@ export const ERANGEL_PISTOL = {
 export const FISTS = {
   PUNCH_FADE_S: 0.08,
 } as const;
+
+// Peasant outfit (Modular Character Outfits). The pack is made for a
+// head-only body: hero skin skinned to VISIBLE_BODY_BONES stays as is, skin on
+// INSET_BODY_BONES is pulled INSET_M in along its normal (scaled by skin
+// weight) so it fills the collar and sleeve openings without poking through
+// the tunic, and the rest is hidden. DYED_PARTS drop their printed colour
+// for ours (part -> hex).
+export const HERO_OUTFIT = {
+  VISIBLE_BODY_BONES: ['Head', 'neck_01'],
+  INSET_BODY_BONES: ['spine_02', 'spine_03', 'clavicle_l', 'clavicle_r'],
+  INSET_M: 0.03,
+  DYED_PARTS: {
+    Male_Peasant_Feet: 0x151515,
+    Male_Peasant_Legs: 0x2e2f33,
+  },
+} as const;

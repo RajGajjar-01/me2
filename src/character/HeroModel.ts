@@ -12,10 +12,12 @@ import hairLongGlbUrl from '../assets/character/hair-long.glb?url';
 import hairColorUrl from '../assets/character/hairColor.jpg';
 import hairNormalUrl from '../assets/character/hairNormal.jpg';
 import heroGlbUrl from '../assets/character/hero.glb?url';
+import outfitGlbUrl from '../assets/character/peasant.glb?url';
 import {
   HERO,
   HERO_CLIPS,
   HERO_ONE_SHOTS,
+  HERO_OUTFIT,
   HERO_UPPER_CLIPS,
   type HeroClip,
   type HeroUpperClip,
@@ -31,6 +33,7 @@ export interface HeroAssets {
 
 let assetsPromise: Promise<HeroAssets> | null = null;
 let femalePromise: Promise<HeroAssets> | null = null;
+let outfitPromise: Promise<HeroAssets> | null = null;
 let animsPromise: Promise<Record<string, THREE.AnimationClipJSON>> | null =
   null;
 
@@ -44,6 +47,12 @@ export function loadHeroAssets(): Promise<HeroAssets> {
 export function loadFemaleAssets(): Promise<HeroAssets> {
   femalePromise ??= loadFemale();
   return femalePromise;
+}
+
+/** The hero's head on the Peasant outfit, bound to the hero's skeleton. */
+export function loadOutfitAssets(): Promise<HeroAssets> {
+  outfitPromise ??= loadOutfit();
+  return outfitPromise;
 }
 
 function loadAnims(): Promise<Record<string, THREE.AnimationClipJSON>> {
@@ -145,6 +154,91 @@ async function loadFemale(): Promise<HeroAssets> {
     mesh.frustumCulled = false;
   });
   return finishAssets(obj, animJson);
+}
+
+async function loadOutfit(): Promise<HeroAssets> {
+  const [hero, outfit] = await Promise.all([
+    loadHeroAssets(),
+    new GLTFLoader().loadAsync(outfitGlbUrl),
+  ]);
+  const template = SkeletonUtils.clone(hero.template) as THREE.Group;
+  const obj = template.children[0];
+  obj.traverse((o) => {
+    const m = o as THREE.SkinnedMesh;
+    if (m.isSkinnedMesh && m.name === 'SuperHero_Male')
+      m.geometry = bareBody(m);
+  });
+
+  const parts: THREE.SkinnedMesh[] = [];
+  outfit.scene.traverse((o) => {
+    if ((o as THREE.SkinnedMesh).isSkinnedMesh)
+      parts.push(o as THREE.SkinnedMesh);
+  });
+  const dyes: Record<string, number> = HERO_OUTFIT.DYED_PARTS;
+  for (const m of parts) {
+    if (m.name in dyes) {
+      // Parts share the outfit's atlas; keep its normals, drop its colour.
+      const mat = (m.material as THREE.MeshStandardMaterial).clone();
+      mat.map = null;
+      mat.color.set(dyes[m.name]);
+      m.material = mat;
+    }
+    const bones = m.skeleton.bones.map((b) => obj.getObjectByName(b.name));
+    m.bind(
+      new THREE.Skeleton(bones as THREE.Bone[], m.skeleton.boneInverses),
+      m.bindMatrix,
+    );
+    m.castShadow = true;
+    m.receiveShadow = true;
+    m.frustumCulled = false;
+    obj.add(m);
+  }
+  return { ...hero, template };
+}
+
+/** Head and neck as is, upper torso pulled in behind the cloth, rest cut. */
+function bareBody(mesh: THREE.SkinnedMesh): THREE.BufferGeometry {
+  const src = mesh.geometry;
+  const keep = new Set<string>(HERO_OUTFIT.VISIBLE_BODY_BONES);
+  const inset = new Set<string>(HERO_OUTFIT.INSET_BODY_BONES);
+  const { position: srcPos, normal, skinIndex, skinWeight } = src.attributes;
+  const position = srcPos.clone();
+  const bone = (v: number, k: number) =>
+    mesh.skeleton.bones[skinIndex.getComponent(v, k)].name;
+  for (let v = 0; v < position.count; v++) {
+    let w = 0;
+    for (let k = 0; k < 4; k++)
+      if (inset.has(bone(v, k))) w += skinWeight.getComponent(v, k);
+    const d = -HERO_OUTFIT.INSET_M * w;
+    position.setXYZ(
+      v,
+      position.getX(v) + normal.getX(v) * d,
+      position.getY(v) + normal.getY(v) * d,
+      position.getZ(v) + normal.getZ(v) * d,
+    );
+  }
+  const visible = (v: number) => {
+    let best = 0;
+    for (let k = 1; k < 4; k++) {
+      if (skinWeight.getComponent(v, k) > skinWeight.getComponent(v, best))
+        best = k;
+    }
+    const b = bone(v, best);
+    return keep.has(b) || inset.has(b);
+  };
+  const count = src.index?.count ?? position.count;
+  const at = (i: number) => src.index?.getX(i) ?? i;
+  const tris: number[] = [];
+  for (let i = 0; i < count; i += 3) {
+    const [a, b, c] = [at(i), at(i + 1), at(i + 2)];
+    if (visible(a) && visible(b) && visible(c)) tris.push(a, b, c);
+  }
+  const geo = new THREE.BufferGeometry();
+  for (const [name, attr] of Object.entries(src.attributes))
+    geo.setAttribute(name, attr);
+  geo.setAttribute('position', position);
+  geo.setIndex(tris);
+  return geo;
 }
 
 function finishAssets(

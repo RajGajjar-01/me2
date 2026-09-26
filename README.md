@@ -21,6 +21,7 @@ Attribution is not required by the license; it is given here with thanks.
 |---|---|---|
 | Male hero, female dummy, long hair | [Universal Base Characters](https://quaternius.com/packs/universalbasecharacters.html) | `src/assets/character/hero.glb` (from `hero.fbx`), `female.glb`, `hair-long.glb`, `*.jpg` |
 | Animation clips | [Universal Animation Library](https://quaternius.com/packs/universalanimationlibrary.html) 1 & 2 | `src/assets/character/anims.json` |
+| Peasant outfit (menu hero) | [Modular Character Outfits – Fantasy](https://quaternius.com/packs/modularcharacteroutfitsfantasy.html) | `src/assets/character/peasant.glb` |
 | Rifle, pistol, shotgun, scope | [Ultimate Guns](https://quaternius.com/packs/ultimategun.html) | `src/assets/character/guns/` |
 
 Support Quaternius on [Patreon](https://www.patreon.com/quaternius).
