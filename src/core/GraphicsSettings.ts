@@ -98,6 +98,9 @@ export class GraphicsSettings {
   private dynAccS = 0;
   private dynFrames = 0;
   private dynGoodWindows = 0;
+  // Highest scale that held; a step up that immediately fails lowers it.
+  private dynCeiling: number;
+  private dynLastUp = false;
   private lastFrameMs = 0;
 
   private pathTracer?: WebGLPathTracer;
@@ -108,6 +111,7 @@ export class GraphicsSettings {
     this.opts = opts;
     this.detectedPreset = detected;
     this.dynScale = opts.resolutionScale;
+    this.dynCeiling = opts.resolutionScale;
   }
 
   /** Antialias is a context-creation flag, so the renderer reads it here. */
@@ -133,6 +137,7 @@ export class GraphicsSettings {
     Object.assign(this.opts, patch);
     if (patch.resolutionScale !== undefined || patch.dynamicResolution) {
       this.dynScale = this.opts.resolutionScale;
+      this.dynCeiling = this.opts.resolutionScale;
     }
     try {
       localStorage.setItem(GRAPHICS.STORAGE_KEY, JSON.stringify(this.opts));
@@ -222,18 +227,24 @@ export class GraphicsSettings {
 
     let next = this.dynScale;
     if (avgMs > targetMs * GRAPHICS.DYNRES_DOWN_RATIO) {
+      if (this.dynLastUp)
+        this.dynCeiling = this.dynScale - GRAPHICS.DYNRES_STEP;
       next -= GRAPHICS.DYNRES_STEP;
       this.dynGoodWindows = 0;
+      this.dynLastUp = false;
     } else if (avgMs < targetMs * GRAPHICS.DYNRES_UP_RATIO) {
       if (++this.dynGoodWindows >= GRAPHICS.DYNRES_UP_WINDOWS) {
         next += GRAPHICS.DYNRES_STEP;
         this.dynGoodWindows = 0;
+        this.dynLastUp = true;
       }
+    } else {
+      this.dynLastUp = false;
     }
     next = THREE.MathUtils.clamp(
       next,
       GRAPHICS.RESOLUTION_SCALE_MIN,
-      this.opts.resolutionScale,
+      Math.min(this.dynCeiling, this.opts.resolutionScale),
     );
     if (next !== this.dynScale) {
       this.dynScale = next;
