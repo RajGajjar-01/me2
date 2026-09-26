@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import animsUrl from '../assets/character/anims.json?url';
 import bodyColorUrl from '../assets/character/bodyColor.jpg';
@@ -7,6 +8,8 @@ import bodyNormalUrl from '../assets/character/bodyNormal.jpg';
 import bodyRoughUrl from '../assets/character/bodyRough.jpg';
 import eyeColorUrl from '../assets/character/eyeColor.jpg';
 import eyeNormalUrl from '../assets/character/eyeNormal.jpg';
+import femaleGlbUrl from '../assets/character/female.glb?url';
+import hairLongGlbUrl from '../assets/character/hair-long.glb?url';
 import hairColorUrl from '../assets/character/hairColor.jpg';
 import hairNormalUrl from '../assets/character/hairNormal.jpg';
 import heroFbxUrl from '../assets/character/hero.fbx?url';
@@ -29,11 +32,25 @@ export interface HeroAssets {
 }
 
 let assetsPromise: Promise<HeroAssets> | null = null;
+let femalePromise: Promise<HeroAssets> | null = null;
+let animsPromise: Promise<Record<string, THREE.AnimationClipJSON>> | null =
+  null;
 
 /** Loads the hero once; every Hero instance clones from the same template. */
 export function loadHeroAssets(): Promise<HeroAssets> {
   assetsPromise ??= loadAssets();
   return assetsPromise;
+}
+
+/** Female body + long hair on the same UE skeleton, so the same clips play. */
+export function loadFemaleAssets(): Promise<HeroAssets> {
+  femalePromise ??= loadFemale();
+  return femalePromise;
+}
+
+function loadAnims(): Promise<Record<string, THREE.AnimationClipJSON>> {
+  animsPromise ??= fetch(animsUrl).then((r) => r.json());
+  return animsPromise;
 }
 
 function texture(url: string, srgb: boolean): THREE.Texture {
@@ -46,7 +63,7 @@ function texture(url: string, srgb: boolean): THREE.Texture {
 async function loadAssets(): Promise<HeroAssets> {
   const [fbxBuf, animJson] = await Promise.all([
     fetch(heroFbxUrl).then((r) => r.arrayBuffer()),
-    fetch(animsUrl).then((r) => r.json()),
+    loadAnims(),
   ]);
 
   const manager = new THREE.LoadingManager();
@@ -92,19 +109,58 @@ async function loadAssets(): Promise<HeroAssets> {
     mesh.frustumCulled = false;
   });
 
-  // Stand on the ground and face -Z (three's forward, same as the camera).
-  obj.updateMatrixWorld(true);
-  const box = new THREE.Box3().setFromObject(obj);
-  obj.position.y = -box.min.y + HERO.FOOT_LIFT_M;
   // Hand bones (fingers follow) scaled down; clips never animate scale.
   for (const side of ['l', 'r']) {
     obj.getObjectByName(`hand_${side}`)?.scale.setScalar(HERO.HAND_SCALE);
   }
+  return finishAssets(obj, animJson);
+}
+
+async function loadFemale(): Promise<HeroAssets> {
+  const loader = new GLTFLoader();
+  const [body, hair, animJson] = await Promise.all([
+    loader.loadAsync(femaleGlbUrl),
+    loader.loadAsync(hairLongGlbUrl),
+    loadAnims(),
+  ]);
+  const obj = body.scene;
+  // The hair ships with its own copy of the skeleton; bind it to the body's.
+  const hairMeshes: THREE.SkinnedMesh[] = [];
+  hair.scene.traverse((o) => {
+    if ((o as THREE.SkinnedMesh).isSkinnedMesh)
+      hairMeshes.push(o as THREE.SkinnedMesh);
+  });
+  for (const m of hairMeshes) {
+    const bones = m.skeleton.bones.map((b) => obj.getObjectByName(b.name));
+    m.bind(
+      new THREE.Skeleton(bones as THREE.Bone[], m.skeleton.boneInverses),
+      m.bindMatrix,
+    );
+    obj.add(m);
+  }
+  obj.traverse((o) => {
+    const mesh = o as THREE.Mesh;
+    if (!mesh.isMesh) return;
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.frustumCulled = false;
+  });
+  return finishAssets(obj, animJson);
+}
+
+function finishAssets(
+  obj: THREE.Object3D,
+  animJson: Record<string, THREE.AnimationClipJSON>,
+): HeroAssets {
+  // Stand on the ground and face -Z (three's forward, same as the camera).
+  obj.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  obj.position.y = -box.min.y + HERO.FOOT_LIFT_M;
   const template = new THREE.Group();
   template.add(obj);
   // Facing from bones only (toes point forward), not mesh bounds: skinned
   // bounds depend on how the skeleton was evaluated and can disagree.
-  // Flip the wrapper, not obj: obj already carries the FBX Z-up -> Y-up X
+  // Flip the wrapper, not obj: an FBX obj carries the Z-up -> Y-up X
   // rotation, so a Y turn on obj spins it upside down.
   const at = (n: string) =>
     obj.getObjectByName(n)?.getWorldPosition(new THREE.Vector3());

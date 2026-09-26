@@ -23,4 +23,6 @@ export const TARGETS = {
   DUMMY_HEADSHOT_DAMAGE: 100,
   DUMMY_LEGS_DAMAGE_MULT: 0.6,
   DUMMY_RESPAWN_S: 3.5,
+  // Dummy bodies, cycled by dummy index.
+  DUMMY_BODIES: ['male', 'female'] as const,
 } as const;

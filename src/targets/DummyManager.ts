@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { SoundEngine } from '../audio/SoundEngine';
-import { Hero, loadHeroAssets } from '../character/HeroModel';
+import { Hero, loadFemaleAssets, loadHeroAssets } from '../character/HeroModel';
 import { HERO } from '../constants/character';
 import { TARGETS } from '../constants/world';
 
@@ -127,9 +127,14 @@ export class DummyManager {
   }
 
   public async loadCharacterModel(): Promise<void> {
-    const assets = await loadHeroAssets();
+    const [male, female] = await Promise.all([
+      loadHeroAssets(),
+      loadFemaleAssets(),
+    ]);
+    const bodies = TARGETS.DUMMY_BODIES;
     for (const dummy of this.dummies) {
-      const hero = new Hero(assets);
+      const body = bodies[dummy.id % bodies.length];
+      const hero = new Hero(body === 'female' ? female : male);
       dummy.hero = hero;
       dummy.root.add(hero.root);
       if (dummy.patrolSpeed) {

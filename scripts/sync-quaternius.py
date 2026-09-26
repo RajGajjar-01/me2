@@ -45,6 +45,9 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
 
     (OUT / "hero.fbx").write_bytes(base64.b64decode(asset_payload("hero-fbx")))
+    # Female dummy body + long hair (GLB, same UE skeleton as the hero).
+    for name in ("female", "hair-long"):
+        (OUT / f"{name}.glb").write_bytes(base64.b64decode(asset_payload(name)))
     for key, uri in asset_payload("hero-tex").items():
         (OUT / f"{key}.jpg").write_bytes(base64.b64decode(uri.split(",", 1)[1]))
 
