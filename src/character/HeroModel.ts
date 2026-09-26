@@ -1,5 +1,4 @@
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import animsUrl from '../assets/character/anims.json?url';
@@ -12,7 +11,7 @@ import femaleGlbUrl from '../assets/character/female.glb?url';
 import hairLongGlbUrl from '../assets/character/hair-long.glb?url';
 import hairColorUrl from '../assets/character/hairColor.jpg';
 import hairNormalUrl from '../assets/character/hairNormal.jpg';
-import heroFbxUrl from '../assets/character/hero.fbx?url';
+import heroGlbUrl from '../assets/character/hero.glb?url';
 import {
   HERO,
   HERO_CLIPS,
@@ -20,11 +19,6 @@ import {
   type HeroClip,
 } from '../constants/character';
 import { GRAPHICS } from '../constants/graphics';
-
-// The FBX references its textures by absolute Windows paths; stub them out
-// and assign our own materials by name below.
-const BLANK_PNG =
-  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 
 export interface HeroAssets {
   template: THREE.Group;
@@ -57,18 +51,19 @@ function texture(url: string, srgb: boolean): THREE.Texture {
   const t = new THREE.TextureLoader().load(url);
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
   t.anisotropy = GRAPHICS.TEXTURE_ANISOTROPY;
+  // glTF UVs have their origin top-left, so textures must not be flipped.
+  t.flipY = false;
   return t;
 }
 
 async function loadAssets(): Promise<HeroAssets> {
-  const [fbxBuf, animJson] = await Promise.all([
-    fetch(heroFbxUrl).then((r) => r.arrayBuffer()),
+  // hero.glb has no embedded textures (scripts/fbx-to-glb.py); materials are
+  // assigned by name below.
+  const [glbBuf, animJson] = await Promise.all([
+    fetch(heroGlbUrl).then((r) => r.arrayBuffer()),
     loadAnims(),
   ]);
-
-  const manager = new THREE.LoadingManager();
-  manager.setURLModifier(() => BLANK_PNG);
-  const obj = new FBXLoader(manager).parse(fbxBuf, '');
+  const obj = (await new GLTFLoader().parseAsync(glbBuf, '')).scene;
 
   const normalScale = new THREE.Vector2(...HERO.NORMAL_SCALE);
   const materials: Record<string, THREE.Material> = {
@@ -160,8 +155,7 @@ function finishAssets(
   template.add(obj);
   // Facing from bones only (toes point forward), not mesh bounds: skinned
   // bounds depend on how the skeleton was evaluated and can disagree.
-  // Flip the wrapper, not obj: an FBX obj carries the Z-up -> Y-up X
-  // rotation, so a Y turn on obj spins it upside down.
+  // hero.glb already faces -Z; the erangel-run female still needs the turn.
   const at = (n: string) =>
     obj.getObjectByName(n)?.getWorldPosition(new THREE.Vector3());
   const foot = at('foot_l');

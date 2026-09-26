@@ -67,6 +67,7 @@ def main():
         for ext in (".obj", ".mtl"):
             shutil.copy(obj_dir / "Accessories" / f"{part}{ext}", guns_out / f"{part}{ext}")
     print(f"wrote hero.fbx, textures and {len(clips)} clips to {OUT}:")
+    print("  then regenerate hero.glb: see scripts/fbx-to-glb.py")
     print("  " + ", ".join(clips))
     print("  guns: " + ", ".join(GUNS + ACCESSORIES))
 
