@@ -230,3 +230,29 @@ export const HERO_OUTFIT = {
     Male_Peasant_Legs: 0x2e2f33,
   },
 } as const;
+
+// Start-screen hero preview (separate small renderer behind the menu).
+export const MENU_HERO = {
+  CLIP: 'Idle_Loop',
+  FOV_DEG: 26,
+  CAMERA_POS_M: [0, 1.1, 5.6],
+  LOOK_AT_M: [0, 0.95, 0],
+  // Three-quarter view; the model faces -Z so PI turns it to the camera.
+  YAW_RAD: Math.PI - 0.45,
+  POINTER_YAW_RAD: 0.3,
+  POINTER_FOLLOW_PER_S: 3,
+  MAX_PIXEL_RATIO: 2,
+  EXPOSURE: 1.1,
+  HEMI_SKY: 0x9fb4d0,
+  HEMI_GROUND: 0x1a1410,
+  HEMI_INTENSITY: 0.6,
+  KEY_COLOR: 0xfff1e0,
+  KEY_INTENSITY: 3.2,
+  KEY_POS_M: [-2.5, 3.5, 3],
+  RIM_COLOR: 0xff9d00,
+  RIM_INTENSITY: 6,
+  RIM_POS_M: [2.5, 2.2, -2.5],
+  FILL_COLOR: 0x7fa6d6,
+  FILL_INTENSITY: 1.4,
+  FILL_POS_M: [3, 1, 2],
+} as const;

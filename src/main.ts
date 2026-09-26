@@ -12,6 +12,7 @@ import { OutdoorRange } from './environment/OutdoorRange';
 import { PlayerCharacter } from './player/PlayerCharacter';
 import { PlayerController } from './player/PlayerController';
 import { CombatHUD } from './ui/CombatHUD';
+import { MenuHero } from './ui/MenuHero';
 import { SettingsPanel } from './ui/SettingsPanel';
 import { TacticalTelemetry } from './ui/TacticalTelemetry';
 import { WeaponManager } from './weapons/WeaponManager';
@@ -19,6 +20,9 @@ import { WeaponManager } from './weapons/WeaponManager';
 class GameApp {
   private gfx = new GraphicsSettings();
   private settingsPanel: SettingsPanel;
+  private menuHero = new MenuHero(
+    document.getElementById('menu-hero-canvas') as HTMLCanvasElement,
+  );
   private renderer: GameRenderer;
   private input: InputManager;
   private range: OutdoorRange;
@@ -147,7 +151,7 @@ class GameApp {
       this.loaderStatus.textContent = 'WEAPONS & COMPOUND READY';
       this.startBtn.classList.remove('disabled');
       this.startBtn.removeAttribute('disabled');
-      this.startBtnText.textContent = 'INITIALIZE OPTICS & ENTER';
+      this.startBtnText.textContent = 'Enter the range';
     } catch (err) {
       console.error('Failed during asset loading:', err);
       this.loaderStatus.textContent = 'INITIALIZATION ERROR';
@@ -219,6 +223,7 @@ class GameApp {
 
     this.input.onLockChange = (locked) => {
       if (!locked && this.gfx.inPhotoMode) this.togglePhotoMode();
+      this.menuHero.setActive(!locked);
       if (locked) {
         this.overlayScreen.classList.add('hidden');
         this.hud.classList.remove('hidden');

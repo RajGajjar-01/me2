@@ -86,78 +86,50 @@
       </div>
 
       <div id="overlay-screen">
-        <div class="overlay-modal">
-          <div class="bunker-stencil">SECTOR 07 // OPEN-AIR LIVE FIRE COMPOUND</div>
-          <h1 class="glitch-title" data-text="OUTDOOR COMBAT RANGE">OUTDOOR COMBAT RANGE</h1>
-          <p class="subtitle">OPEN-AIR ADVANCED TACTICAL WEAPON TRAINING FACILITY</p>
+        <header class="menu-bar">
+          <div class="menu-brand">TACTICAL BUNKER</div>
+          <button id="settings-btn" type="button" class="settings-btn">Graphics settings</button>
+        </header>
 
+        <section class="menu-copy">
+          <div class="bunker-stencil">Sector 07 live fire compound</div>
+          <h1 class="menu-title">Outdoor<br />Combat Range</h1>
+          <p class="subtitle">Open-air weapons training. Four loadouts, reactive dummies and a ray-traced photo mode.</p>
+
+          <div class="menu-actions">
+            <button id="start-btn" type="button" class="tactical-btn disabled" disabled>
+              <span class="btn-text" id="start-btn-text">Loading assets</span>
+            </button>
+            <div id="loader-container">
+              <div class="loader-header">
+                <span id="loader-status" class="loader-status-text">INITIALIZING ENGINE...</span>
+                <span id="loader-percent" class="loader-percent-text">0%</span>
+              </div>
+              <div class="loader-track">
+                <div id="loader-fill"></div>
+              </div>
+            </div>
+          </div>
+
+          <h2 class="controls-heading">Controls</h2>
           <div class="controls-grid">
-            <div class="ctrl-card">
-              <span class="key">WASD</span>
-              <span class="action">Movement</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">SHIFT</span>
-              <span class="action">Sprint</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">SPACE</span>
-              <span class="action">Jump / Climb &middot; Stand Up</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">MOUSE 1</span>
-              <span class="action">Fire</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">MOUSE 2</span>
-              <span class="action">Aim (ADS)</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">R</span>
-              <span class="action">Reload</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">V / ALT</span>
-              <span class="action">FPV/TPP View &middot; Free Look</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">C</span>
-              <span class="action">Crouch &middot; Slide (Sprinting)</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">Z</span>
-              <span class="action">Prone &middot; Roll (Sprinting)</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">1 / 2 / 3 / 4 / X / SCROLL</span>
-              <span class="action">Valorant Weapon Swap</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">P</span>
-              <span class="action">Ray-Traced Photo (if enabled)</span>
-            </div>
-            <div class="ctrl-card">
-              <span class="key">ESC</span>
-              <span class="action">Pause / Unlock</span>
-            </div>
+            <div class="ctrl-row"><kbd>W A S D</kbd><span>Move</span></div>
+            <div class="ctrl-row"><kbd>Shift</kbd><span>Sprint</span></div>
+            <div class="ctrl-row"><kbd>Space</kbd><span>Jump, climb, stand up</span></div>
+            <div class="ctrl-row"><kbd>LMB</kbd><span>Fire</span></div>
+            <div class="ctrl-row"><kbd>RMB</kbd><span>Aim down sights</span></div>
+            <div class="ctrl-row"><kbd>R</kbd><span>Reload</span></div>
+            <div class="ctrl-row"><kbd>V / Alt</kbd><span>Switch view, free look</span></div>
+            <div class="ctrl-row"><kbd>C</kbd><span>Crouch, slide while sprinting</span></div>
+            <div class="ctrl-row"><kbd>Z</kbd><span>Prone, roll while sprinting</span></div>
+            <div class="ctrl-row"><kbd>1-4 / X / Wheel</kbd><span>Swap weapon</span></div>
+            <div class="ctrl-row"><kbd>P</kbd><span>Ray-traced photo</span></div>
+            <div class="ctrl-row"><kbd>Esc</kbd><span>Pause</span></div>
           </div>
+        </section>
 
-          <div id="loader-container">
-            <div class="loader-header">
-              <span id="loader-status" class="loader-status-text">INITIALIZING ENGINE...</span>
-              <span id="loader-percent" class="loader-percent-text">0%</span>
-            </div>
-            <div class="loader-track">
-              <div id="loader-fill"></div>
-            </div>
-          </div>
-
-          <button id="start-btn" type="button" class="tactical-btn disabled" disabled>
-            <span class="btn-glow"></span>
-            <span class="btn-text" id="start-btn-text">LOADING ASSETS...</span>
-          </button>
-          <button id="settings-btn" type="button" class="settings-btn">GRAPHICS SETTINGS</button>
-          <div class="opt-note">HARDWARE ACCELERATED // THREE-MESH-BVH PHYSICS</div>
+        <div class="menu-hero" aria-hidden="true">
+          <canvas id="menu-hero-canvas"></canvas>
         </div>
       </div>
     </div>
