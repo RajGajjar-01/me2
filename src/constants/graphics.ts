@@ -38,6 +38,8 @@ export type QualityPreset = keyof typeof QUALITY_PRESETS;
 export const GRAPHICS = {
   STORAGE_KEY: 'me2.graphics.v1',
   SHADOW_MAP_SIZES: [512, 1024, 2048, 4096] as const,
+  // Anisotropic filtering samples; three clamps to the GPU's max.
+  TEXTURE_ANISOTROPY: 8,
   RESOLUTION_SCALE_MIN: 0.5,
   RESOLUTION_SCALE_MAX: 1.5,
   RESOLUTION_SCALE_STEP: 0.05,

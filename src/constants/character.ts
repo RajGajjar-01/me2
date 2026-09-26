@@ -49,6 +49,9 @@ export const HERO = {
   UAL_PELVIS_REST_M: 0.918,
   // UAL clips put the soles 1-4 cm below rig zero.
   FOOT_LIFT_M: 0.035,
+  // Quaternius ships DirectX (Unreal) normal maps; three.js reads OpenGL, so
+  // green is flipped. Wrong green shows as seams at UV borders (shoulders).
+  NORMAL_SCALE: [1, -1] as const,
   // Hands 2 cm smaller: 21.5 cm (wrist -> middle fingertip) -> 19.5 cm.
   HAND_SCALE: 19.5 / 21.5,
   FADE_S: 0.2,

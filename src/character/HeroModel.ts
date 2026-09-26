@@ -16,6 +16,7 @@ import {
   HERO_ONE_SHOTS,
   type HeroClip,
 } from '../constants/character';
+import { GRAPHICS } from '../constants/graphics';
 
 // The FBX references its textures by absolute Windows paths; stub them out
 // and assign our own materials by name below.
@@ -38,6 +39,7 @@ export function loadHeroAssets(): Promise<HeroAssets> {
 function texture(url: string, srgb: boolean): THREE.Texture {
   const t = new THREE.TextureLoader().load(url);
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.anisotropy = GRAPHICS.TEXTURE_ANISOTROPY;
   return t;
 }
 
@@ -51,10 +53,12 @@ async function loadAssets(): Promise<HeroAssets> {
   manager.setURLModifier(() => BLANK_PNG);
   const obj = new FBXLoader(manager).parse(fbxBuf, '');
 
+  const normalScale = new THREE.Vector2(...HERO.NORMAL_SCALE);
   const materials: Record<string, THREE.Material> = {
     MI_Superhero_Male: new THREE.MeshStandardMaterial({
       map: texture(bodyColorUrl, true),
       normalMap: texture(bodyNormalUrl, false),
+      normalScale,
       roughnessMap: texture(bodyRoughUrl, false),
       roughness: 1,
       metalness: 0,
@@ -62,11 +66,13 @@ async function loadAssets(): Promise<HeroAssets> {
     MI_Eyes: new THREE.MeshStandardMaterial({
       map: texture(eyeColorUrl, true),
       normalMap: texture(eyeNormalUrl, false),
+      normalScale,
       roughness: 0.15,
     }),
     MI_Hair_1: new THREE.MeshStandardMaterial({
       map: texture(hairColorUrl, true),
       normalMap: texture(hairNormalUrl, false),
+      normalScale,
       color: 0x5a4030,
       roughness: 0.55,
       side: THREE.DoubleSide,
