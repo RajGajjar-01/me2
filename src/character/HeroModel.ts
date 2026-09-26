@@ -90,6 +90,10 @@ async function loadAssets(): Promise<HeroAssets> {
   obj.updateMatrixWorld(true);
   const box = new THREE.Box3().setFromObject(obj);
   obj.position.y = -box.min.y + HERO.FOOT_LIFT_M;
+  // Hand bones (fingers follow) scaled down; clips never animate scale.
+  for (const side of ['l', 'r']) {
+    obj.getObjectByName(`hand_${side}`)?.scale.setScalar(HERO.HAND_SCALE);
+  }
   const template = new THREE.Group();
   template.add(obj);
   // Facing from bones only (toes point forward), not mesh bounds: skinned

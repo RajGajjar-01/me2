@@ -13,7 +13,16 @@ export const WEAPON_DEFS = [
     startAmmo: 30,
     reserveAmmo: 120,
     damage: 48,
-    idleOffset: [0.02, -0.3, 0.22] as const,
+    // Hip (PUBG FPP): gun from the bottom-right, angled in (hipYaw, rad);
+    // right hand out of view, both hands within the hero's reach.
+    // hipPitch/hipGripYaw (rad) then tilt the barrel about the right hand so
+    // on screen it runs up toward the crosshair (line ~6deg under it).
+    idleOffset: [0.34, -0.22, 0.38] as const,
+    hipYaw: 0.3,
+    hipPitch: 0.12,
+    hipGripYaw: 0.06,
+    // Third-person hip (no cant): the body-centred hold TPP uses.
+    tppIdleOffset: [0.02, -0.3, 0.22] as const,
     adsOffset: [0.0, -0.13, 0.24] as const,
     recoilForce: {
       posZ: 0.052,
@@ -35,6 +44,10 @@ export const WEAPON_DEFS = [
     reserveAmmo: 60,
     damage: 36,
     idleOffset: [0.12, -0.28, -0.14] as const,
+    hipYaw: 0,
+    hipPitch: 0,
+    hipGripYaw: 0,
+    tppIdleOffset: [0.12, -0.28, -0.14] as const,
     adsOffset: [0.0, -0.06, -0.08] as const,
     recoilForce: {
       posZ: 0.038,
@@ -55,7 +68,11 @@ export const WEAPON_DEFS = [
     startAmmo: 6,
     reserveAmmo: 30,
     damage: 22,
-    idleOffset: [0.02, -0.3, -0.04] as const,
+    idleOffset: [0.34, -0.2, 0.18] as const,
+    hipYaw: 0.375,
+    hipPitch: 0.02,
+    hipGripYaw: -0.14,
+    tppIdleOffset: [0.02, -0.3, -0.04] as const,
     adsOffset: [0.0, -0.07, 0.0] as const,
     recoilForce: {
       posZ: 0.085,
@@ -69,9 +86,41 @@ export const WEAPON_DEFS = [
     pellets: 8,
     pelletSpread: 0.055,
   },
+  {
+    // Bare hands: erangel-run jab / cross, short-range hit, no ammo.
+    name: 'FISTS',
+    fireMode: 'MELEE // JAB + CROSS',
+    isAuto: false,
+    fireRate: 1.6,
+    magSize: 0,
+    startAmmo: 0,
+    reserveAmmo: 0,
+    damage: 34,
+    melee: true,
+    idleOffset: [0, 0, 0] as const,
+    hipYaw: 0,
+    hipPitch: 0,
+    hipGripYaw: 0,
+    tppIdleOffset: [0, 0, 0] as const,
+    adsOffset: [0, 0, 0] as const,
+    recoilForce: {
+      posZ: 0,
+      rotX: 0,
+      camPitch: 0,
+      camYaw: 0,
+      spray: 'simple',
+    } as const,
+    reloadTime: 0,
+    reloadStyle: 'mag' as const,
+  },
 ] as const;
 
-export type WeaponDefIndex = 0 | 1 | 2;
+export type WeaponDefIndex = 0 | 1 | 2 | 3;
+
+// Fists: how far a punch reaches from the eye (m).
+export const MELEE = {
+  RANGE_M: 1.6,
+} as const;
 export type ReloadStyle = (typeof WEAPON_DEFS)[number]['reloadStyle'];
 export type SprayKind = (typeof WEAPON_DEFS)[number]['recoilForce']['spray'];
 
@@ -81,6 +130,10 @@ export const WEAPONS = {
   SWAP_EQUIP_S: 0.36,
   HIP_FOV: 75,
   ADS_FOV: 48,
+  // Scoped ADS: 4x magnification of the 75deg hip view (2*atan(tan(37.5deg)/4)).
+  SCOPE_FOV: 21.6,
+  // Scope overlay appears once the zoom is this close to SCOPE_FOV (deg).
+  SCOPE_VIEW_FOV_MARGIN: 6,
   ADS_LERP_RATE: 14,
   RECOIL_STIFFNESS: 240,
   RECOIL_DAMPING: 20,
@@ -156,19 +209,30 @@ export const RELOAD_CUES = {
 export const GUN_MODELS = [
   {
     FILE: 'AssaultRifle_2',
+    // Extra thickness (model width axis): the OBJ AK is only ~3.2 cm wide,
+    // a real one ~4.5-5 cm.
+    WIDTH_SCALE: 1.5,
+    // Scope_2 (pack accessory) on the receiver top, model units; its base
+    // is at y = -0.03 in its own OBJ.
+    SCOPE: { FILE: 'Scope_2', MOUNT_MODEL: [0.7, 0.85, 0] as const },
     // Pistols use erangel-run's pistol clips + hand attachment (no IK).
     PISTOL_CLIPS: false,
     TWIST: -0.7,
     LENGTH_M: 0.88,
     MUZZLE_MODEL: [3.82, 0.69, 0] as const,
     RIGHT_GRIP_MODEL: [-0.05, 0.05, 0] as const,
-    LEFT_GRIP_MODEL: [2.2, 0.36, 0] as const,
+    // Low enough that the thumb tucks under the handguard top (sight line).
+    LEFT_GRIP_MODEL: [2.2, 0.21, 0] as const,
+    // Third-person: on the handguard's underside just ahead of the magazine.
+    TPP_LEFT_GRIP_MODEL: [1.98, 0.38, 0] as const,
     RIG_MUZZLE: [0, 0.07, -0.97] as const,
     CHAMBER: [0.035, 0.05, -0.02] as const,
     FLASH: 'rifle' as const,
   },
   {
     FILE: 'Pistol_1',
+    WIDTH_SCALE: 1,
+    SCOPE: null,
     PISTOL_CLIPS: true,
     TWIST: 0,
     LENGTH_M: 0.22,
@@ -181,6 +245,8 @@ export const GUN_MODELS = [
   },
   {
     FILE: 'Shotgun_2',
+    WIDTH_SCALE: 1,
+    SCOPE: null,
     PISTOL_CLIPS: false,
     TWIST: -0.7,
     LENGTH_M: 1.0,
@@ -191,6 +257,13 @@ export const GUN_MODELS = [
     CHAMBER: [0.03, 0.03, -0.02] as const,
     FLASH: 'rifle' as const,
   },
+  {
+    // Fists: no gun model (empty rig), no IK, no stance twist.
+    FILE: null,
+    FISTS: true,
+    TWIST: 0,
+    PISTOL_CLIPS: false,
+  },
 ] as const;
 
 // PBR look for the OBJ guns ("*Metal*" materials are metallic, the rest matte).
@@ -198,4 +271,11 @@ export const GUN_MATERIAL = {
   METALNESS: 0.7,
   METAL_ROUGHNESS: 0.4,
   ROUGHNESS: 0.7,
+} as const;
+
+// Scope lens: the MTL glass is opaque near-black; show it as tinted glass.
+export const SCOPE_GLASS = {
+  COLOR: 0x335577,
+  OPACITY: 0.35,
+  ROUGHNESS: 0.05,
 } as const;

@@ -17,6 +17,8 @@ export const HERO_CLIPS = [
   'Pistol_Aim_Neutral',
   'Pistol_Shoot',
   'Pistol_Reload',
+  'Punch_Jab',
+  'Punch_Cross',
   'Slide_Start',
   'Slide_Loop',
   'Slide_Exit',
@@ -35,6 +37,8 @@ export const HERO_ONE_SHOTS: readonly HeroClip[] = [
   'Pistol_Aim_Neutral',
   'Pistol_Shoot',
   'Pistol_Reload',
+  'Punch_Jab',
+  'Punch_Cross',
   'Slide_Start',
   'Slide_Exit',
   'ClimbUp_1m',
@@ -45,6 +49,8 @@ export const HERO = {
   UAL_PELVIS_REST_M: 0.918,
   // UAL clips put the soles 1-4 cm below rig zero.
   FOOT_LIFT_M: 0.035,
+  // Hands 2 cm smaller: 21.5 cm (wrist -> middle fingertip) -> 19.5 cm.
+  HAND_SCALE: 19.5 / 21.5,
   FADE_S: 0.2,
   FADE_FAST_S: 0.08,
   // Clip stride speeds (m/s at 1x), as in erangel-run. Clips never play
@@ -83,6 +89,8 @@ export const MOVES = {
   ROLL_SPEED: 5.78,
   ROLL_MOVE_S: 0.864,
   ROLL_DURATION_S: 1.2,
+  // First-person camera eases off the head's tumble over the roll's tail.
+  ROLL_CAM_FADE_S: 0.25,
   // Slide: starts at sprint speed and bleeds off.
   SLIDE_DURATION_S: 1.0,
   SLIDE_FRICTION_PER_S: 1.6,
@@ -101,7 +109,8 @@ export const TPP_CAMERA = {
 
 // Rifle hold, all in the aim frame (x right, y up, -z forward), metres.
 // The gun is posed from the hero's eyes exactly like the first-person
-// viewmodel (WEAPON_DEFS offsets), so both views hold it identically.
+// viewmodel (WEAPON_DEFS offsets); third-person then moves it onto the
+// right shoulder.
 export const GUN_HOLD = {
   // Third-person carry when not aiming/firing: the gun pivots down (rad)
   // about the right hand and angles across the body (yaw, rad). The
@@ -124,7 +133,10 @@ export const GUN_HOLD = {
   // Wrist sits this far behind the grip (the hero's knuckles are 11.7 cm
   // from the wrist, so the grip lands at the base of the fingers), and the
   // palm this far off the grip axis.
-  PALM_REACH_M: 0.11,
+  // Share of the hand's roll (about the forearm axis) given to the forearm,
+  // like a real radius/ulna, so the skinned wrist doesn't pinch thin.
+  FOREARM_TWIST_SHARE: 0.75,
+  PALM_REACH_M: 0.11 * (19.5 / 21.5),
   GRIP_RADIUS_M: 0.02,
   // Finger curl per joint (01, 02, 03; rad) from the straight rest pose,
   // bending toward the palm so the hand wraps the gun instead of a fist.
@@ -145,9 +157,26 @@ export const GUN_HOLD = {
       thumb: [0.3, 0.4, 0.3],
     },
   } as const,
+  // Third-person long guns: the stock's butt (bore line) sits in the right
+  // shoulder pocket, relative to upperarm_r (m, body frame: in, up, forward).
+  SHOULDER_POCKET_M: [-0.05, 0.02, -0.06] as const,
+  // Third-person scale on GUN_MODELS TWIST: a shouldered gun needs less
+  // blading for the support arm to reach with a natural elbow bend.
+  TPP_TWIST_SCALE: 0.6,
+  // Aiming, the bore converges on the crosshair this far down the camera
+  // ray (m).
+  TPP_CONVERGE_M: 30,
+  // Third-person support hand: fingers reach across under the handguard
+  // and wrap its right side, palm up.
+  TPP_LEFT_FINGERS: [0.7, 0.2, -0.7] as const,
+  TPP_LEFT_PALM: [0, 1, 0] as const,
+  // Pocket follow rate (1/s): smooths the torso's stride bob.
+  SHOULDER_DAMP_PER_S: 8,
+  // Min elbow bend (sine) in the clip pose to measure the elbow hinge from.
+  HINGE_MIN_BEND_SIN: 0.2,
   // Elbow pole directions in the aim frame.
-  POLE_RIGHT: [0.8, -1, 0.3] as const,
-  POLE_LEFT: [-0.8, -1, 0.2] as const,
+  POLE_RIGHT: [0.35, -1, 0.2] as const,
+  POLE_LEFT: [-0.35, -1, 0.1] as const,
 } as const;
 
 // Pistols use erangel-run's own pistol clips and hand attachment (src/main.js
@@ -162,4 +191,9 @@ export const ERANGEL_PISTOL = {
   GRIP_UP: 0.22,
   SHOOT_FADE_S: 0.04,
   RELOAD_FADE_S: 0.1,
+} as const;
+
+// Fists (4th weapon): erangel-run's jab / cross clips, alternating per punch.
+export const FISTS = {
+  PUNCH_FADE_S: 0.08,
 } as const;

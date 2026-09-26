@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 import { MUZZLE_FLASH } from '../constants/effects';
-import { GUN_MATERIAL, GUN_MODELS } from '../constants/weapons';
+import { GUN_MATERIAL, GUN_MODELS, SCOPE_GLASS } from '../constants/weapons';
 import { TextureGenerator } from '../utils/TextureGenerator';
 
 export interface WeaponRig {
@@ -20,6 +20,8 @@ export interface WeaponRig {
   rightArm: THREE.Group;
   /** Rest position of each anchor (= its grip); reload offsets add to it. */
   leftArmBase: THREE.Vector3;
+  /** Scoped guns: height of the scope's optical axis in rig space (m). */
+  scopeSightY?: number;
 }
 
 /** The point inside a hand anchor the hero's wrist is pulled to. */
@@ -39,33 +41,14 @@ export class WeaponModels {
   /** Builds the viewmodel rig for WEAPON_DEFS[index] from its OBJ gun. */
   public static async loadGunRig(index: number): Promise<WeaponRig> {
     const def = GUN_MODELS[index];
-    const file = (ext: string) => {
-      const load = GUN_FILES[`../assets/character/guns/${def.FILE}.${ext}`];
-      if (!load)
-        throw new Error(
-          `${def.FILE}.${ext} missing: run python3 scripts/sync-quaternius.py`,
-        );
-      return load();
-    };
-    const [objText, mtlText] = await Promise.all([file('obj'), file('mtl')]);
-
-    const materials = WeaponModels.parseMtl(mtlText);
-    const gun = new OBJLoader().parse(objText);
-    gun.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (!m.isMesh) return;
-      const swap = (mat: THREE.Material) => materials.get(mat.name) ?? mat;
-      m.material = Array.isArray(m.material)
-        ? m.material.map(swap)
-        : swap(m.material);
-      m.castShadow = false;
-      m.receiveShadow = true;
-    });
+    if ('FISTS' in def) return WeaponModels.emptyRig();
+    const gun = await WeaponModels.loadObj(def.FILE);
 
     // Barrel +X -> -Z, real-world length, bore muzzle onto the rig muzzle.
     const box = new THREE.Box3().setFromObject(gun);
     const s = def.LENGTH_M / (box.max.x - box.min.x);
-    gun.scale.setScalar(s);
+    // OBJ +Z is the gun's width (it becomes rig X after the turn below).
+    gun.scale.set(s, s, s * def.WIDTH_SCALE);
     gun.rotation.y = Math.PI / 2;
     gun.updateMatrix();
     const muzzlePos = tuple(def.RIG_MUZZLE);
@@ -75,6 +58,19 @@ export class WeaponModels {
 
     const root = new THREE.Group();
     root.add(gun);
+
+    // Scope rides the gun (recoil, sway, reload); undo the gun's width
+    // stretch so the tube stays round.
+    let scopeSightY: number | undefined;
+    if (def.SCOPE) {
+      const scope = await WeaponModels.loadObj(def.SCOPE.FILE);
+      scope.position.copy(tuple(def.SCOPE.MOUNT_MODEL));
+      scope.scale.z = 1 / def.WIDTH_SCALE;
+      gun.add(scope);
+      root.updateMatrixWorld(true);
+      const b = new THREE.Box3().setFromObject(scope);
+      scopeSightY = (b.min.y + b.max.y) / 2; // tube centre = optical axis
+    }
 
     // Each anchor pivots at its own grip, so reload rotations turn the hand
     // in place instead of swinging it around the gun's origin.
@@ -105,7 +101,60 @@ export class WeaponModels {
       leftArm,
       rightArm,
       leftArmBase: leftArm.position.clone(),
+      scopeSightY,
     };
+  }
+
+  /** Fists: same rig shape (anchors, flash) but no model, flash or light. */
+  private static emptyRig(): WeaponRig {
+    const root = new THREE.Group();
+    const arm = () => {
+      const g = new THREE.Group();
+      g.add(new THREE.Object3D());
+      root.add(g);
+      return g;
+    };
+    const rightArm = arm();
+    const leftArm = arm();
+    const muzzleFlash = new THREE.Group();
+    muzzleFlash.visible = false;
+    root.add(muzzleFlash);
+    return {
+      root,
+      muzzleFlash,
+      flashLight: new THREE.PointLight(0, 0),
+      chamberPos: new THREE.Vector3(),
+      muzzlePos: new THREE.Vector3(),
+      leftArm,
+      rightArm,
+      leftArmBase: new THREE.Vector3(),
+    };
+  }
+
+  /** One OBJ + MTL from the synced guns folder, with PBR materials. */
+  private static async loadObj(name: string): Promise<THREE.Group> {
+    const file = (ext: string) => {
+      const load = GUN_FILES[`../assets/character/guns/${name}.${ext}`];
+      if (!load)
+        throw new Error(
+          `${name}.${ext} missing: run python3 scripts/sync-quaternius.py`,
+        );
+      return load();
+    };
+    const [objText, mtlText] = await Promise.all([file('obj'), file('mtl')]);
+    const materials = WeaponModels.parseMtl(mtlText);
+    const obj = new OBJLoader().parse(objText);
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh) return;
+      const swap = (mat: THREE.Material) => materials.get(mat.name) ?? mat;
+      m.material = Array.isArray(m.material)
+        ? m.material.map(swap)
+        : swap(m.material);
+      m.castShadow = false;
+      m.receiveShadow = true;
+    });
+    return obj;
   }
 
   /**
@@ -119,6 +168,20 @@ export class WeaponModels {
       const [key, ...v] = line.trim().split(/\s+/);
       if (key === 'newmtl') name = v[0];
       if (key !== 'Kd' || !name) continue;
+      if (/glass/i.test(name)) {
+        out.set(
+          name,
+          new THREE.MeshStandardMaterial({
+            name,
+            color: SCOPE_GLASS.COLOR,
+            transparent: true,
+            opacity: SCOPE_GLASS.OPACITY,
+            roughness: SCOPE_GLASS.ROUGHNESS,
+            metalness: 0,
+          }),
+        );
+        continue;
+      }
       const metal = /metal/i.test(name);
       out.set(
         name,

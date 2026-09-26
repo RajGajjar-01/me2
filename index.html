@@ -15,6 +15,12 @@
 
       <div id="hud" class="hidden">
 
+        <div id="scope-overlay" class="hidden" aria-hidden="true">
+          <div class="scope-line scope-h"></div>
+          <div class="scope-line scope-v"></div>
+          <div class="scope-dot"></div>
+        </div>
+
         <div id="crosshair-container">
           <div class="reticle-line top"></div>
           <div class="reticle-line bottom"></div>
@@ -53,12 +59,6 @@
 
         <div id="bottom-left">
           <div class="operator-tag">OPERATOR // SPEC-OPS</div>
-          <div class="stamina-wrapper">
-            <div class="stamina-label">STAMINA</div>
-            <div class="stamina-track">
-              <div id="stamina-bar" style="width: 100%;"></div>
-            </div>
-          </div>
           <div class="posture-indicator">
             <span id="posture-text">STAND</span>
             <span class="divider">|</span>
@@ -80,6 +80,7 @@
             <div class="slot active" id="slot-primary">[1] AK-47</div>
             <div class="slot" id="slot-secondary">[2] GHOST</div>
             <div class="slot" id="slot-tertiary">[3] BREACHER</div>
+            <div class="slot" id="slot-fists">[4] FISTS</div>
           </div>
         </div>
       </div>
@@ -128,7 +129,7 @@
               <span class="action">Prone &middot; Roll (Sprinting)</span>
             </div>
             <div class="ctrl-card">
-              <span class="key">1 / 2 / 3 / X / SCROLL</span>
+              <span class="key">1 / 2 / 3 / 4 / X / SCROLL</span>
               <span class="action">Valorant Weapon Swap</span>
             </div>
             <div class="ctrl-card">

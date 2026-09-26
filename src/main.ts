@@ -3,7 +3,7 @@ import { loadHeroAssets } from './character/HeroModel';
 import { AUDIO } from './constants/audio';
 import { INPUT } from './constants/input';
 import { CAMERA, PLAYER } from './constants/player';
-import { GUN_MODELS, WEAPONS } from './constants/weapons';
+import { GUN_MODELS, WEAPON_DEFS, WEAPONS } from './constants/weapons';
 import { WORLD } from './constants/world';
 import { GraphicsSettings } from './core/GraphicsSettings';
 import { InputManager } from './core/InputManager';
@@ -38,7 +38,6 @@ class GameApp {
   private loaderFill = document.getElementById('loader-fill')!;
   private hud = document.getElementById('hud')!;
   private fpsCounter = document.getElementById('fps-counter')!;
-  private staminaBar = document.getElementById('stamina-bar')!;
   private speedText = document.getElementById('speed-text')!;
   private postureText = document.getElementById('posture-text')!;
   private ammoCurrent = document.getElementById('ammo-current')!;
@@ -48,11 +47,14 @@ class GameApp {
   private slotPrimary = document.getElementById('slot-primary')!;
   private slotSecondary = document.getElementById('slot-secondary')!;
   private slotTertiary = document.getElementById('slot-tertiary')!;
+  private slotFists = document.getElementById('slot-fists')!;
   private hitsCounter = document.getElementById('hits-counter')!;
   private accuracyCounter = document.getElementById('accuracy-counter')!;
   private settingsBtn = document.getElementById('settings-btn')!;
   private photoBadge = document.getElementById('photo-badge')!;
   private photoSpp = document.getElementById('photo-spp')!;
+  private scopeOverlay = document.getElementById('scope-overlay')!;
+  private crosshair = document.getElementById('crosshair-container')!;
 
   private frameCount = 0;
   private fpsTime = 0;
@@ -108,6 +110,7 @@ class GameApp {
         this.player!.applyRecoil(pitch, yaw);
         this.playerCharacter?.onShot();
       };
+      this.weapons.onPunch = () => this.playerCharacter?.onPunch();
 
       this.player.onFootstep = (stance, isSprinting) => {
         const gain =
@@ -153,12 +156,19 @@ class GameApp {
 
   private setupWeaponEvents(): void {
     this.weapons.onAmmoChange = (current, reserve, name, mode) => {
-      this.ammoCurrent.textContent = `${current}`;
-      this.ammoReserve.textContent = `${reserve}`;
+      // Fists have no ammo: show a dash instead of 0 / 0.
+      const melee = 'melee' in WEAPON_DEFS[this.weapons.currentWeaponIndex];
+      this.ammoCurrent.textContent = melee ? '—' : `${current}`;
+      this.ammoReserve.textContent = melee ? '—' : `${reserve}`;
       this.weaponName.textContent = name;
       this.fireMode.textContent = mode;
 
-      const slots = [this.slotPrimary, this.slotSecondary, this.slotTertiary];
+      const slots = [
+        this.slotPrimary,
+        this.slotSecondary,
+        this.slotTertiary,
+        this.slotFists,
+      ];
       slots.forEach((slot, i) => {
         if (!slot) return;
         slot.classList.toggle('active', i === this.weapons.currentWeaponIndex);
@@ -256,13 +266,25 @@ class GameApp {
         this.player.aimLock = aiming;
         this.player.sprintBlocked = this.weapons.isReloading;
         this.weapons.raisedHold = this.player.stance === 'prone';
+        this.weapons.thirdPerson = tpp;
         // Pistols live in the hero's hand in both views (erangel-run style).
+        const model = GUN_MODELS[this.weapons.currentWeaponIndex];
+        const fists = 'FISTS' in model;
         const bodyGun =
-          tpp || GUN_MODELS[this.weapons.currentWeaponIndex].PISTOL_CLIPS;
-        this.weapons.viewmodelContainer.visible = !bodyGun;
-        this.weapons.thirdPersonMuzzle = bodyGun
-          ? this.playerCharacter.muzzle(this.weapons.currentWeaponIndex)
-          : null;
+          tpp || model.PISTOL_CLIPS || fists || this.playerCharacter.rollGun;
+        // Looking through a scope: overlay on, gun/body/crosshair off, and
+        // mouse sensitivity scaled with the zoom.
+        const scope = this.weapons.scopeView;
+        this.scopeOverlay.classList.toggle('hidden', !scope);
+        this.crosshair.classList.toggle('hidden', scope);
+        this.playerCharacter.hidden = scope;
+        this.input.sensitivity =
+          INPUT.SENSITIVITY * (this.player.camera.fov / WEAPONS.HIP_FOV);
+        this.weapons.viewmodelContainer.visible = !bodyGun && !scope;
+        this.weapons.thirdPersonMuzzle =
+          bodyGun && !fists
+            ? this.playerCharacter.muzzle(this.weapons.currentWeaponIndex)
+            : null;
         if (this.weapons) {
           this.weapons.stanceKickMult =
             this.player.stance === 'prone'
@@ -307,9 +329,6 @@ class GameApp {
       this.frameCount = 0;
       this.fpsTime = 0;
     }
-
-    const staminaPercent = (this.player.stamina / this.player.maxStamina) * 100;
-    this.staminaBar.style.width = `${staminaPercent}%`;
 
     const speed = this.player.getSpeed();
     this.speedText.textContent = `${speed.toFixed(1)} M/S`;

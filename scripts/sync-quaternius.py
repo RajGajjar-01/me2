@@ -23,12 +23,14 @@ CLIPS = [
     "anim-death", "anim-slide-start", "anim-slide-loop", "anim-slide-exit",
     "anim-climb-up", "anim-crouch-idle", "anim-crouch-walk", "anim-jump-loop",
     "anim-jump-land", "anim-hit-knockback", "anim-pistol-idle", "anim-pistol-aim",
-    "anim-pistol-shoot", "anim-pistol-reload",
+    "anim-pistol-shoot", "anim-pistol-reload", "anim-jab", "anim-cross",
 ]
 
 # Guns (Quaternius Ultimate Guns, OBJ + MTL). Keep in sync with GUN_MODELS[].FILE
 # in src/constants/weapons.ts.
 GUNS = ["AssaultRifle_2", "Pistol_1", "Shotgun_2"]
+# Attachments from the pack's Accessories folder (GUN_MODELS[].SCOPE.FILE).
+ACCESSORIES = ["Scope_2"]
 
 
 def asset_payload(name):
@@ -58,9 +60,12 @@ def main():
     for gun in GUNS:
         for ext in (".obj", ".mtl"):
             shutil.copy(obj_dir / f"{gun}{ext}", guns_out / f"{gun}{ext}")
+    for part in ACCESSORIES:
+        for ext in (".obj", ".mtl"):
+            shutil.copy(obj_dir / "Accessories" / f"{part}{ext}", guns_out / f"{part}{ext}")
     print(f"wrote hero.fbx, textures and {len(clips)} clips to {OUT}:")
     print("  " + ", ".join(clips))
-    print("  guns: " + ", ".join(GUNS))
+    print("  guns: " + ", ".join(GUNS + ACCESSORIES))
 
 
 if __name__ == "__main__":

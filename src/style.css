@@ -273,34 +273,6 @@ html {
   letter-spacing: 1.5px;
 }
 
-.stamina-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.stamina-label {
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-.stamina-track {
-  width: 140px;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 2px;
-  overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.15);
-}
-
-#stamina-bar {
-  height: 100%;
-  background: linear-gradient(90deg, var(--cyan-accent), #4facfe);
-  box-shadow: 0 0 6px rgba(0, 229, 255, 0.4);
-  transition: width 0.1s linear;
-}
-
 .posture-indicator {
   font-family: var(--font-mono);
   font-size: 11px;
@@ -1174,4 +1146,47 @@ html {
   font-size: 10px;
   letter-spacing: 1.5px;
   color: var(--text-muted);
+}
+
+/* ── Scope view (scoped ADS): reticle only ── */
+#scope-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
+#scope-overlay.hidden,
+#crosshair-container.hidden {
+  display: none;
+}
+
+.scope-line {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: rgba(0, 0, 0, 0.85);
+}
+
+.scope-h {
+  width: 76vmin;
+  height: 1px;
+  transform: translate(-50%, -50%);
+}
+
+.scope-v {
+  width: 1px;
+  height: 76vmin;
+  transform: translate(-50%, -50%);
+}
+
+.scope-dot {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--red-alert);
+  transform: translate(-50%, -50%);
 }

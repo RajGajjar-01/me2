@@ -1,11 +1,18 @@
 import * as THREE from 'three';
-import { type Arm, rotateWorld, solveArm } from '../character/armIK';
+import {
+  type Arm,
+  elbowHinge,
+  rotateWorld,
+  solveArm,
+} from '../character/armIK';
 import { Hero, type HeroAssets } from '../character/HeroModel';
 import {
   ERANGEL_PISTOL,
+  FISTS,
   GUN_HOLD,
   HERO,
   type HeroClip,
+  MOVES,
 } from '../constants/character';
 import { MANTLE } from '../constants/player';
 import { GUN_MODELS } from '../constants/weapons';
@@ -40,6 +47,8 @@ const _fa = new THREE.Vector3();
 const _fb = new THREE.Vector3();
 const _axis = new THREE.Vector3();
 const _fq = new THREE.Quaternion();
+const _qc = new THREE.Quaternion();
+const _twist = new THREE.Quaternion();
 const UP = new THREE.Vector3(0, 1, 0);
 const RIGHT = new THREE.Vector3(1, 0, 0);
 
@@ -50,8 +59,13 @@ const FINGERS = ['index', 'middle', 'ring', 'pinky', 'thumb'] as const;
 interface HandGrip {
   fingers: THREE.Vector3;
   palm: THREE.Vector3;
+  /** Third-person pose (support hand cups the handguard). */
+  tppFingers: THREE.Vector3;
+  tppPalm: THREE.Vector3;
   localBasis: THREE.Matrix4;
   side: 'r' | 'l';
+  /** Elbow bend axis (upper-arm space), measured once from the clip. */
+  hinge: THREE.Vector3 | null;
   /** Per finger: joints 01..03 plus the tip, and each joint's rest rotation. */
   fingers3: {
     name: (typeof FINGERS)[number];
@@ -81,6 +95,10 @@ interface TppGun {
   leftArm: THREE.Group;
   rightArm: THREE.Group;
   muzzle: THREE.Object3D;
+  /** Back of the stock on the bore line (gun space). */
+  butt: THREE.Vector3;
+  /** Third-person left grip minus the viewmodel's (gun space). */
+  leftShift: THREE.Vector3;
 }
 
 /**
@@ -89,8 +107,8 @@ interface TppGun {
  * - First-person: camera sits at the hero's eyes (head collapsed), hands
  *   hold the camera-attached viewmodel gun.
  * - Third-person: a copy of the gun takes the viewmodel's exact pose relative
- *   to the hero's eyes (hip/ADS offset, recoil, sway, reload), so both views
- *   hold it the same way.
+ *   to the hero's eyes (hip/ADS offset, recoil, sway, reload), moved so the
+ *   stock rests in the right shoulder.
  */
 export class PlayerCharacter {
   public readonly hero: Hero;
@@ -105,6 +123,10 @@ export class PlayerCharacter {
   private animPose = new Map<THREE.Object3D, THREE.Quaternion>();
   private ikWeight = 1;
   private shotPending = false;
+  private punchPending = false;
+  private nextPunchCross = false;
+  /** Hidden while looking through a scope (the body would block the lens). */
+  public hidden = false;
   private wasReloading = false;
   /** Third-person carry pitch (rad) or null when the gun is up on target. */
   private carry: number | null = null;
@@ -121,10 +143,18 @@ export class PlayerCharacter {
   private handToGun = new THREE.Matrix4();
   private hasHandToGun = false;
   private lastMove = 'normal';
+  private rollHeadInv: THREE.Quaternion | null = null;
+  /** Long gun rides the hand (TPP, or a first-person roll blending out). */
+  public rollGun = false;
   private static readonly POLE_RIGHT = tuple(GUN_HOLD.POLE_RIGHT);
   private static readonly POLE_LEFT = tuple(GUN_HOLD.POLE_LEFT);
   private static readonly EYE = tuple(HERO.FPV_EYE_OFFSET);
   private static readonly LOW_READY = tuple(GUN_HOLD.LOW_READY_OFFSET);
+  private static readonly POCKET = tuple(GUN_HOLD.SHOULDER_POCKET_M);
+  /** Right shoulder joint in chest space (ignores the clip's shrugs). */
+  private shoulder: THREE.Vector3;
+  /** Shoulder pocket in hero-root space, damped against stride bob. */
+  private pocket = new THREE.Vector3();
   private grips: { right: HandGrip; left: HandGrip };
 
   constructor(
@@ -171,9 +201,19 @@ export class PlayerCharacter {
       this.neck,
       ...this.legs.flatMap((l) => [l.thigh, l.calf, l.foot]),
     ];
+    this.hero.model.updateMatrixWorld(true);
+    this.shoulder = this.chest.worldToLocal(
+      right.upper.getWorldPosition(new THREE.Vector3()),
+    );
     this.grips = {
       right: this.handGrip('r', GUN_HOLD.RIGHT_FINGERS, GUN_HOLD.RIGHT_PALM),
-      left: this.handGrip('l', GUN_HOLD.LEFT_FINGERS, GUN_HOLD.LEFT_PALM),
+      left: this.handGrip(
+        'l',
+        GUN_HOLD.LEFT_FINGERS,
+        GUN_HOLD.LEFT_PALM,
+        GUN_HOLD.TPP_LEFT_FINGERS,
+        GUN_HOLD.TPP_LEFT_PALM,
+      ),
     };
     // Finger joints too: our grip must not stick when the clip takes back
     // over (the mixer only rewrites values that changed).
@@ -195,6 +235,18 @@ export class PlayerCharacter {
         const m = o as THREE.Mesh;
         if (m.isMesh) m.castShadow = true;
       });
+      group.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(group);
+      const butt = box.isEmpty()
+        ? new THREE.Vector3()
+        : new THREE.Vector3(0, rig.muzzlePos.y, box.max.z);
+      const def = GUN_MODELS[i];
+      const leftShift =
+        'TPP_LEFT_GRIP_MODEL' in def
+          ? tuple(def.TPP_LEFT_GRIP_MODEL)
+              .applyMatrix4(group.children[0].matrix)
+              .sub(rig.leftArmBase)
+          : new THREE.Vector3();
       const muzzle = new THREE.Object3D();
       muzzle.position.copy(rig.muzzlePos);
       group.add(muzzle);
@@ -204,6 +256,8 @@ export class PlayerCharacter {
         leftArm,
         rightArm,
         muzzle,
+        butt,
+        leftShift,
         handFit: GUN_MODELS[i].PISTOL_CLIPS
           ? PlayerCharacter.pistolFit(group)
           : null,
@@ -219,6 +273,8 @@ export class PlayerCharacter {
     side: 'r' | 'l',
     fingers: readonly number[],
     palm: readonly number[],
+    tppFingers = fingers,
+    tppPalm = palm,
   ): HandGrip {
     this.hero.model.updateMatrixWorld(true);
     const at = (n: string) =>
@@ -251,8 +307,11 @@ export class PlayerCharacter {
     return {
       fingers: tuple(fingers).normalize(),
       palm: tuple(palm).normalize(),
+      tppFingers: tuple(tppFingers).normalize(),
+      tppPalm: tuple(tppPalm).normalize(),
       localBasis: basisFrom(f, n, new THREE.Matrix4()).clone(),
       side,
+      hinge: null,
       fingers3,
     };
   }
@@ -280,6 +339,11 @@ export class PlayerCharacter {
       .multiply(new THREE.Matrix4().makeTranslation(-grip.x, -grip.y, -grip.z));
   }
 
+  /** Fists: throw the next punch (jab, cross, jab, ...). */
+  public onPunch(): void {
+    this.punchPending = true;
+  }
+
   /** Called when the current gun fires (pistol plays its shoot clip). */
   public onShot(): void {
     this.shotPending = true;
@@ -294,9 +358,11 @@ export class PlayerCharacter {
     const p = this.player;
     const tpp = p.viewMode === 'tpp';
     const pistol = GUN_MODELS[weaponIndex].PISTOL_CLIPS;
+    const fists = 'FISTS' in GUN_MODELS[weaponIndex];
     this.head.scale.setScalar(tpp ? 1 : HERO.FPV_HEAD_SCALE);
 
     const root = this.hero.root;
+    root.visible = !this.hidden;
     root.position.set(
       p.capsulePosition.x,
       p.capsulePosition.y - p.radius,
@@ -309,7 +375,7 @@ export class PlayerCharacter {
       const q = this.animPose.get(bone);
       if (q) bone.quaternion.copy(q);
     }
-    this.updateAnimation(pistol, reloading);
+    this.updateAnimation(pistol, fists, reloading);
     this.hero.update(delta);
     for (const bone of this.edited) {
       const q = this.animPose.get(bone);
@@ -321,10 +387,15 @@ export class PlayerCharacter {
     root.updateMatrixWorld(true);
 
     const k = Math.min(1, delta * GUN_HOLD.IK_BLEND_PER_S);
-    // Hands leave the IK during special moves (the arms run the clip and
-    // the gun rides the right hand). Pistols never use IK: erangel-run's
-    // pistol clips pose the arms and the pistol sits in the right hand.
-    const holdsGun = p.move === 'normal' && !pistol ? 1 : 0;
+    // Third-person: hands leave the IK during special moves (the arms run
+    // the clip and the gun rides the right hand). First-person keeps both
+    // hands on the camera-held gun through slides/rolls/climbs. Pistols never
+    // use IK: erangel-run's pistol clips pose the arms.
+    this.rollGun =
+      !tpp && (p.move === 'roll' || (this.rollGun && this.ikWeight < 0.999));
+    const bodyGun = tpp || this.rollGun;
+    const holdsGun =
+      (p.move === 'normal' || !bodyGun) && !pistol && !fists ? 1 : 0;
     this.ikWeight += (holdsGun - this.ikWeight) * k;
     const w = this.ikWeight;
 
@@ -343,10 +414,21 @@ export class PlayerCharacter {
     if (w > 1e-3) {
       // Rifle stance: twist the torso (left shoulder forward) and bend the
       // upper spine with the aim so the shoulders follow the gun.
-      const twist = GUN_MODELS[weaponIndex].TWIST * w;
-      rotateWorld(this.chest, _q.setFromAxisAngle(UP, twist));
-      // Counter-turn the neck so the face stays on the aim, not 40deg off.
-      rotateWorld(this.neck, _q.setFromAxisAngle(UP, -twist));
+      const twist =
+        GUN_MODELS[weaponIndex].TWIST *
+        w *
+        (tpp ? GUN_HOLD.TPP_TWIST_SCALE : 1);
+      // Twist about the spine's own axis, not world up: with the sprint
+      // clip's forward lean, a world-up turn swings the torso sideways.
+      rotateWorld(
+        this.chest,
+        _q.setFromAxisAngle(this.boneAxis(this.chest, this.neck), twist),
+      );
+      // Counter-turn the neck (about its own axis) so the face stays on aim.
+      rotateWorld(
+        this.neck,
+        _q.setFromAxisAngle(this.boneAxis(this.neck, this.head), -twist),
+      );
       const right = _b.copy(RIGHT).applyQuaternion(_qYaw);
       _q.setFromAxisAngle(right, pitch * GUN_HOLD.SPINE_PITCH_SHARE * w);
       rotateWorld(this.chest, _q);
@@ -355,15 +437,22 @@ export class PlayerCharacter {
     // The pistol is the body's own in both views; long guns use the
     // camera-attached viewmodel in first-person.
     this.guns.forEach((g, i) => {
-      g.group.visible = (tpp || pistol) && i === weaponIndex;
+      g.group.visible =
+        (bodyGun || pistol) && i === weaponIndex && !this.hidden;
     });
 
     const rig = this.rigs[weaponIndex];
     this.eyePoint(_eye);
+    root.worldToLocal(this.chest.localToWorld(_c.copy(this.shoulder)));
+    this.pocket.lerp(
+      _c.add(PlayerCharacter.POCKET),
+      Math.min(1, delta * GUN_HOLD.SHOULDER_DAMP_PER_S),
+    );
     if (!tpp) {
       // First-person: camera at the eyes (position only; aim stays). The
       // viewmodel is its child, so update it before the IK reads the grips.
       p.camera.position.copy(_eye);
+      this.followRollSpin();
       p.camera.updateMatrixWorld(true);
     }
     if (pistol) {
@@ -372,10 +461,10 @@ export class PlayerCharacter {
       _m.compose(_b, _quat, _one); // hand frame without the rig's bone scale
       gun.group.matrix.multiplyMatrices(_m, gun.handFit!);
       gun.group.updateMatrixWorld(true);
-    } else if (tpp) {
+    } else if (bodyGun) {
       const gun = this.guns[weaponIndex];
       // Mirror the viewmodel's reload choreography onto the TPP hands.
-      gun.leftArm.position.copy(rig.leftArm.position);
+      gun.leftArm.position.copy(rig.leftArm.position).add(gun.leftShift);
       gun.leftArm.rotation.copy(rig.leftArm.rotation);
       gun.rightArm.position.copy(rig.rightArm.position);
       gun.rightArm.rotation.copy(rig.rightArm.rotation);
@@ -391,7 +480,46 @@ export class PlayerCharacter {
       }
     } else {
       this.reachFor(gripOf(rig.rightArm), gripOf(rig.leftArm), rig.root);
+      if (w >= 0.999) {
+        this.handToGun
+          .copy(this.handR.matrixWorld)
+          .invert()
+          .multiply(rig.root.matrixWorld);
+        this.hasHandToGun = true;
+      }
     }
+  }
+
+  /**
+   * Twist axis for a spine bone: its own long axis while upright (a world-up
+   * turn would swing a forward-leaning sprint torso sideways), blending to
+   * world up when lying prone (a spine-axis turn there would roll the body).
+   */
+  private boneAxis(from: THREE.Object3D, to: THREE.Object3D): THREE.Vector3 {
+    from.getWorldPosition(_fa);
+    return to
+      .getWorldPosition(_axis)
+      .sub(_fa)
+      .normalize()
+      .lerp(UP, this.proneT)
+      .normalize();
+  }
+
+  /** First-person roll: the camera tumbles with the head. */
+  private followRollSpin(): void {
+    const p = this.player;
+    if (p.move !== 'roll') {
+      this.rollHeadInv = null;
+      return;
+    }
+    this.head.getWorldQuaternion(_fq);
+    this.rollHeadInv ??= _fq.clone().invert();
+    _fq.multiply(this.rollHeadInv);
+    const w = Math.min(
+      1,
+      (MOVES.ROLL_DURATION_S - p.moveTime) / MOVES.ROLL_CAM_FADE_S,
+    );
+    p.camera.quaternion.premultiply(_q.identity().slerp(_fq, Math.max(0, w)));
   }
 
   private eyePoint(out: THREE.Vector3): THREE.Vector3 {
@@ -401,7 +529,8 @@ export class PlayerCharacter {
 
   /**
    * TPP gun = eye frame (aim) x viewmodel container x rig root, i.e. exactly
-   * where the first-person gun would be. Special moves blend toward the gun
+   * where the first-person gun would be; third-person then slides it so the
+   * butt sits in the right shoulder. Special moves blend toward the gun
    * riding on the right hand.
    */
   private placeTppGun(gun: TppGun, rig: WeaponRig): void {
@@ -412,21 +541,50 @@ export class PlayerCharacter {
       .compose(_eye, _qAim, _one)
       .multiply(container.matrix)
       .multiply(rig.root.matrix);
-    if (this.carry !== null) {
-      // Low-ready: swing the gun down and across the body about the right
-      // grip, so the stock never swings up into the face.
-      const grip = _b.copy(gun.rightArm.position).applyMatrix4(_mGun);
-      const right = _c.set(1, 0, 0).applyQuaternion(_qYaw);
-      _quat
-        .setFromAxisAngle(UP, GUN_HOLD.LOW_READY_YAW)
-        .multiply(_q.setFromAxisAngle(right, this.carry - this.player.pitch));
-      _m.makeRotationFromQuaternion(_quat);
+    const p = this.player;
+    if (p.viewMode === 'tpp') {
+      // Shoulder the gun: slide it so the butt lands in the pocket, then
+      // turn it about the butt.
+      const butt = _b.copy(gun.butt).applyMatrix4(_mGun);
+      const pocket = _c
+        .copy(this.pocket)
+        .applyMatrix4(this.hero.root.matrixWorld);
+      _mGun.premultiply(
+        _m2.makeTranslation(
+          pocket.x - butt.x,
+          pocket.y - butt.y,
+          pocket.z - butt.z,
+        ),
+      );
+      if (this.carry === null) {
+        // Aim: the bore converges on the crosshair point.
+        const bore = _f
+          .copy(gun.muzzle.position)
+          .applyMatrix4(_mGun)
+          .sub(pocket)
+          .normalize();
+        const want = _b
+          .set(0, 0, -GUN_HOLD.TPP_CONVERGE_M)
+          .applyQuaternion(_q.setFromEuler(_euler.set(p.pitch, p.yaw, 0)))
+          .add(p.camera.position)
+          .sub(pocket)
+          .normalize();
+        _quat.setFromUnitVectors(bore, want);
+      } else {
+        // Low-ready: muzzle down and across the body.
+        const right = _b.set(1, 0, 0).applyQuaternion(_qYaw);
+        _quat
+          .setFromAxisAngle(UP, GUN_HOLD.LOW_READY_YAW)
+          .multiply(_q.setFromAxisAngle(right, this.carry - p.pitch));
+      }
       _mGun
-        .premultiply(_m2.makeTranslation(-grip.x, -grip.y, -grip.z))
-        .premultiply(_m)
-        .premultiply(_m2.makeTranslation(grip.x, grip.y, grip.z));
-      const drop = _b.copy(PlayerCharacter.LOW_READY).applyQuaternion(_qYaw);
-      _mGun.premultiply(_m2.makeTranslation(drop.x, drop.y, drop.z));
+        .premultiply(_m2.makeTranslation(-pocket.x, -pocket.y, -pocket.z))
+        .premultiply(_m.makeRotationFromQuaternion(_quat))
+        .premultiply(_m2.makeTranslation(pocket.x, pocket.y, pocket.z));
+      if (this.carry !== null) {
+        const drop = _b.copy(PlayerCharacter.LOW_READY).applyQuaternion(_qYaw);
+        _mGun.premultiply(_m2.makeTranslation(drop.x, drop.y, drop.z));
+      }
     }
 
     const w = this.ikWeight;
@@ -487,19 +645,43 @@ export class PlayerCharacter {
     gripPos: THREE.Vector3,
     pole: THREE.Vector3,
   ): void {
-    const fingers = _b.copy(grip.fingers).applyQuaternion(_gunQ);
-    const palm = _eye.copy(grip.palm).applyQuaternion(_gunQ);
+    const tpp = this.player.viewMode === 'tpp';
+    const fingers = _b
+      .copy(tpp ? grip.tppFingers : grip.fingers)
+      .applyQuaternion(_gunQ);
+    const palm = _eye
+      .copy(tpp ? grip.tppPalm : grip.palm)
+      .applyQuaternion(_gunQ);
     // Palm centre sits on the grip surface; the wrist is behind it.
     const wrist = gripPos
       .addScaledVector(palm, -GUN_HOLD.GRIP_RADIUS_M)
       .addScaledVector(fingers, -GUN_HOLD.PALM_REACH_M);
-    solveArm(arm, wrist, pole);
+    // Third-person: bend the elbow about its hinge so the upper arm takes
+    // its natural roll (no sideways-twisted elbow / ballooned shoulder).
+    if (tpp) {
+      grip.hinge ??= elbowHinge(arm, GUN_HOLD.HINGE_MIN_BEND_SIN);
+      solveArm(arm, wrist, pole, grip.hinge);
+    } else solveArm(arm, wrist, pole);
 
     // World rotation taking the hand's rest basis onto the wanted one.
     basisFrom(fingers, palm, _basis).multiply(
       _m.copy(grip.localBasis).transpose(),
     );
     _quat.setFromRotationMatrix(_basis);
+
+    // Swing-twist: move most of the roll about the forearm axis into the
+    // forearm itself (turning it about its own axis keeps the wrist in place).
+    arm.hand.getWorldQuaternion(_qc);
+    _q.copy(_quat).multiply(_qc.invert()); // world delta current -> wanted
+    arm.lower.getWorldPosition(_fa);
+    const axis = arm.hand.getWorldPosition(_fb).sub(_fa).normalize();
+    const proj = axis.dot(_axis.set(_q.x, _q.y, _q.z));
+    _twist.set(axis.x * proj, axis.y * proj, axis.z * proj, _q.w).normalize();
+    rotateWorld(
+      arm.lower,
+      _fq.identity().slerp(_twist, GUN_HOLD.FOREARM_TWIST_SHARE),
+    );
+
     arm.hand.parent!.getWorldQuaternion(_q).invert();
     arm.hand.quaternion.copy(_q.multiply(_quat));
     arm.hand.updateMatrixWorld(true);
@@ -606,7 +788,11 @@ export class PlayerCharacter {
     rotateWorld(bone, _quat.identity().slerp(_q, t));
   }
 
-  private updateAnimation(pistol: boolean, reloading: boolean): void {
+  private updateAnimation(
+    pistol: boolean,
+    fists: boolean,
+    reloading: boolean,
+  ): void {
     const p = this.player;
     const hero = this.hero;
     const speed = p.getSpeed();
@@ -643,6 +829,18 @@ export class PlayerCharacter {
     this.wasReloading = reloading;
     const shot = this.shotPending;
     this.shotPending = false;
+    const punch = this.punchPending;
+    this.punchPending = false;
+    if (fists) {
+      if (punch) {
+        hero.playOnce(
+          this.nextPunchCross ? 'Punch_Cross' : 'Punch_Jab',
+          FISTS.PUNCH_FADE_S,
+        );
+        this.nextPunchCross = !this.nextPunchCross;
+      }
+      if (hero.isRunning('Punch_Jab') || hero.isRunning('Punch_Cross')) return;
+    }
     if (pistol) {
       if (reloadStarted)
         hero.playOnce('Pistol_Reload', ERANGEL_PISTOL.RELOAD_FADE_S);

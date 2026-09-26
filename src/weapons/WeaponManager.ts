@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { SoundEngine } from '../audio/SoundEngine';
 import { SOUNDS } from '../constants/assets';
 import { INPUT } from '../constants/input';
-import { RELOAD_CUES, WEAPON_DEFS, WEAPONS } from '../constants/weapons';
+import { MELEE, RELOAD_CUES, WEAPON_DEFS, WEAPONS } from '../constants/weapons';
 import type { InputManager } from '../core/InputManager';
 import { BulletTracerManager } from '../effects/BulletTracer';
 import { DecalManager } from '../effects/DecalManager';
@@ -21,6 +21,10 @@ export interface WeaponData {
   damage: number;
   adsOffset: THREE.Vector3;
   idleOffset: THREE.Vector3;
+  hipYaw: number;
+  hipPitch: number;
+  hipGripYaw: number;
+  tppIdleOffset: THREE.Vector3;
 
   recoilForce: {
     posZ: number;
@@ -36,6 +40,9 @@ export interface WeaponData {
 
   pellets?: number;
 
+  /** Fists: short-range punch instead of a shot. */
+  melee?: boolean;
+
   pelletSpread?: number;
 }
 
@@ -43,8 +50,20 @@ export class WeaponManager {
   public viewmodelContainer: THREE.Group = new THREE.Group();
   public currentWeaponIndex = 0;
   public isAiming = false;
+  /** True while looking through a scope (zoomed in): show the scope overlay. */
+  public get scopeView(): boolean {
+    const rig = this.weaponRigs[this.currentWeaponIndex];
+    return (
+      this.isAiming &&
+      !this.thirdPerson &&
+      rig?.scopeSightY !== undefined &&
+      this.camera.fov < WEAPONS.SCOPE_FOV + WEAPONS.SCOPE_VIEW_FOV_MARGIN
+    );
+  }
   /** Set by the game each frame: gun held up at the shoulder (prone). */
   public raisedHold = false;
+  /** Set by the game each frame: third-person uses its own hip hold. */
+  public thirdPerson = false;
   public isReloading = false;
   public isSwapping = false;
 
@@ -67,11 +86,16 @@ export class WeaponManager {
     damage: def.damage,
     idleOffset: new THREE.Vector3(...def.idleOffset),
     adsOffset: new THREE.Vector3(...def.adsOffset),
+    hipYaw: def.hipYaw,
+    hipPitch: def.hipPitch,
+    hipGripYaw: def.hipGripYaw,
+    tppIdleOffset: new THREE.Vector3(...def.tppIdleOffset),
     recoilForce: { ...def.recoilForce },
     reloadTime: def.reloadTime,
     reloadStyle: def.reloadStyle,
     ...('pellets' in def ? { pellets: def.pellets } : {}),
     ...('pelletSpread' in def ? { pelletSpread: def.pelletSpread } : {}),
+    ...('melee' in def ? { melee: def.melee } : {}),
   }));
 
   public weaponRigs: WeaponRig[] = [];
@@ -115,6 +139,13 @@ export class WeaponManager {
   private swapAnimRot = new THREE.Euler();
 
   private currentOffset = new THREE.Vector3();
+  /** Hip aim (rad): bore angled onto the crosshair; 0 when aiming. */
+  private currentHipYaw = 0;
+  private currentHipPitch = 0;
+  private currentHipGripYaw = 0;
+  private readonly _pivot = new THREE.Vector3();
+  private readonly _pivotE = new THREE.Quaternion();
+  private readonly _pivotEuler = new THREE.Euler(0, 0, 0, 'YXZ');
   private targetOffset = new THREE.Vector3();
 
   private readonly _muzzleWorld = new THREE.Vector3();
@@ -142,6 +173,8 @@ export class WeaponManager {
   ) => void;
 
   public onRecoil?: (pitchDelta: number, yawDelta: number) => void;
+  /** Fired on every punch (the body plays the jab / cross clip). */
+  public onPunch?: () => void;
 
   private burstShot = 0;
   private static readonly BURST_RESET = WEAPONS.BURST_RESET_S;
@@ -211,6 +244,7 @@ export class WeaponManager {
     if (this.input.isKeyPressed(INPUT.SLOT_1)) this.selectWeapon(0);
     if (this.input.isKeyPressed(INPUT.SLOT_2)) this.selectWeapon(1);
     if (this.input.isKeyPressed(INPUT.SLOT_3)) this.selectWeapon(2);
+    if (this.input.isKeyPressed(INPUT.SLOT_4)) this.selectWeapon(3);
     if (this.input.isKeyPressed(INPUT.QUICK_SWAP)) {
       this.selectWeapon(
         this.previousWeaponIndex === this.currentWeaponIndex
@@ -228,14 +262,28 @@ export class WeaponManager {
 
     this.isAiming =
       this.input.isMouseDown(INPUT.ADS_MOUSE_BUTTON) &&
+      !weapon.melee &&
       !this.isReloading &&
       !this.isSwapping;
     // Raised hold while prone: a hip carry would go through the ground.
     this.targetOffset.copy(
-      this.isAiming || this.raisedHold ? weapon.adsOffset : weapon.idleOffset,
+      this.isAiming || this.raisedHold
+        ? weapon.adsOffset
+        : this.thirdPerson
+          ? weapon.tppIdleOffset
+          : weapon.idleOffset,
     );
+    // Scoped ADS (first-person): centre the scope's optical axis on the eye
+    // instead of the iron sights (keep the ADS distance). TPP aims as before.
+    const scoped =
+      this.isAiming && !this.thirdPerson && rig.scopeSightY !== undefined;
+    if (scoped) this.targetOffset.set(0, -rig.scopeSightY!, weapon.adsOffset.z);
 
-    const targetFov = this.isAiming ? WEAPONS.ADS_FOV : WEAPONS.HIP_FOV;
+    const targetFov = scoped
+      ? WEAPONS.SCOPE_FOV
+      : this.isAiming
+        ? WEAPONS.ADS_FOV
+        : WEAPONS.HIP_FOV;
     this.camera.fov = THREE.MathUtils.lerp(
       this.camera.fov,
       targetFov,
@@ -252,7 +300,8 @@ export class WeaponManager {
     if (canFire) {
       if (weapon.isAuto || this.canFireSemi) {
         if (now - this.lastFireTime >= fireInterval) {
-          this.shoot(now);
+          if (weapon.melee) this.punch(now, weapon);
+          else this.shoot(now);
           if (!weapon.isAuto) this.canFireSemi = false;
         }
       }
@@ -430,11 +479,32 @@ export class WeaponManager {
         this.reloadAnimOffset.z,
     );
 
+    const hipAim = !(this.isAiming || this.raisedHold || this.thirdPerson);
+    const hipK = Math.min(1, lerpSpeed * delta);
+    this.currentHipYaw +=
+      ((hipAim ? weapon.hipYaw : 0) - this.currentHipYaw) * hipK;
+    this.currentHipPitch +=
+      ((hipAim ? weapon.hipPitch : 0) - this.currentHipPitch) * hipK;
+    this.currentHipGripYaw +=
+      ((hipAim ? weapon.hipGripYaw : 0) - this.currentHipGripYaw) * hipK;
     this.viewmodelContainer.rotation.set(
       this.recoilRot.x + this.swapAnimRot.x + this.reloadAnimRot.x,
-      this.recoilRot.y + this.swapAnimRot.y + this.reloadAnimRot.y,
+      this.recoilRot.y +
+        this.swapAnimRot.y +
+        this.reloadAnimRot.y +
+        this.currentHipYaw,
       this.recoilRot.z + this.swapAnimRot.z + this.reloadAnimRot.z,
     );
+    // Hip barrel tilt pivots about the right grip (P' = P + Q(g - E g),
+    // Q' = Q E), so only the muzzle end swings toward the crosshair.
+    this._pivotE.setFromEuler(
+      this._pivotEuler.set(this.currentHipPitch, this.currentHipGripYaw, 0),
+    );
+    const grip = rig.rightArm.position;
+    const q = this.viewmodelContainer.quaternion;
+    this._pivot.copy(grip).applyQuaternion(this._pivotE).sub(grip).negate();
+    this.viewmodelContainer.position.add(this._pivot.applyQuaternion(q));
+    q.multiply(this._pivotE);
 
     rig.leftArm.position.copy(rig.leftArmBase).add(this.reloadArmOffset);
     rig.leftArm.rotation.copy(this.reloadArmRot);
@@ -610,6 +680,40 @@ export class WeaponManager {
         this.totalShots > 0 ? (this.totalHits / this.totalShots) * 100 : 0;
       this.onStatsUpdate(this.totalShots, this.totalHits, acc);
     }
+  }
+
+  /** Fists: a short ray from the eye; hits enemies / targets within reach. */
+  private punch(now: number, weapon: WeaponData): void {
+    this.lastFireTime = now;
+    this.onPunch?.();
+    this._shotPoint.set(0, 0);
+    this.raycaster.setFromCamera(this._shotPoint, this.camera);
+    this.raycaster.far = MELEE.RANGE_M;
+    const dummyHit = this.raycaster.intersectObjects(
+      this.dummyManager.hitboxMeshes,
+      false,
+    )[0];
+    if (dummyHit) {
+      const res = this.dummyManager.registerHit(
+        dummyHit.object as THREE.Mesh,
+        dummyHit.point,
+        weapon.damage,
+      );
+      this.triggerHitmarker(res.isHeadshot);
+    } else {
+      const targetHit = this.raycaster.intersectObjects(
+        this.targetManager.targetMeshes,
+        false,
+      )[0];
+      if (targetHit) {
+        this.targetManager.registerHit(
+          targetHit.object as THREE.Mesh,
+          targetHit.point,
+        );
+        this.triggerHitmarker(false);
+      }
+    }
+    this.raycaster.far = Number.POSITIVE_INFINITY;
   }
 
   private tracePellet(weapon: WeaponData): { hit: boolean; headshot: boolean } {

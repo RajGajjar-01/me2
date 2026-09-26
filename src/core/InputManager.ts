@@ -8,7 +8,7 @@ export class InputManager {
   private wheelDelta = 0;
   private mouseButtons: Set<number> = new Set();
   public isLocked = false;
-  public sensitivity = INPUT.SENSITIVITY;
+  public sensitivity: number = INPUT.SENSITIVITY;
 
   public onLockChange?: (locked: boolean) => void;
 

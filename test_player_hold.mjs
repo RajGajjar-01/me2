@@ -85,18 +85,88 @@ const rigs = await Promise.all(
   WEAPON_DEFS.map((_, i) => WeaponModels.loadGunRig(i)),
 );
 for (const rig of rigs) container.add(rig.root);
+// Mirror WeaponManager's viewmodel pose: hip offset + hip yaw, or ADS.
+const holdAt = (def, aiming, view = 'fpv') => {
+  const hip = view === 'tpp' ? def.tppIdleOffset : def.idleOffset;
+  const fpvHip = !aiming && view !== 'tpp';
+  container.position.set(...(aiming ? def.adsOffset : hip));
+  // Scoped first-person ADS centres the scope axis on the eye (WeaponManager).
+  const sightY = rigs[WEAPON_DEFS.indexOf(def)].scopeSightY;
+  if (aiming && view !== 'tpp' && sightY !== undefined)
+    container.position.set(0, -sightY, def.adsOffset[2]);
+  container.rotation.set(0, fpvHip ? def.hipYaw : 0, 0);
+  if (!fpvHip) return;
+  // Barrel tilt about the right grip, as WeaponManager does.
+  const grip = rigs[WEAPON_DEFS.indexOf(def)].rightArm.position;
+  const E = new THREE.Quaternion().setFromEuler(
+    new THREE.Euler(def.hipPitch, def.hipGripYaw, 0, 'YXZ'),
+  );
+  container.position.add(
+    grip
+      .clone()
+      .sub(grip.clone().applyQuaternion(E))
+      .applyQuaternion(container.quaternion),
+  );
+  container.quaternion.multiply(E);
+};
 const pc = new PlayerCharacter(scene, player, await loadHeroAssets(), rigs);
+// Wrist twist: the hand's roll about the forearm axis vs the rest pose. A
+// big roll concentrated at the wrist pinches the skinned wrist thin.
+const { Hero } = await import('./src/character/HeroModel.ts');
+const restHero = new Hero(await loadHeroAssets());
+const relQ = (h, side) => {
+  const lower = h
+    .bone(`lowerarm_${side}`)
+    .getWorldQuaternion(new THREE.Quaternion());
+  return lower
+    .invert()
+    .multiply(
+      h.bone(`hand_${side}`).getWorldQuaternion(new THREE.Quaternion()),
+    );
+};
+restHero.root.updateMatrixWorld(true);
+const restRel = { r: relQ(restHero, 'r'), l: relQ(restHero, 'l') };
+const wristTwistDeg = (side) => {
+  const d = restRel[side].clone().invert().multiply(relQ(pc.hero, side));
+  // Forearm axis in the forearm's frame: from lowerarm to hand.
+  const lower = pc.hero.bone(`lowerarm_${side}`);
+  const axis = pc.hero
+    .bone(`hand_${side}`)
+    .getWorldPosition(new THREE.Vector3())
+    .sub(lower.getWorldPosition(new THREE.Vector3()))
+    .applyQuaternion(lower.getWorldQuaternion(new THREE.Quaternion()).invert())
+    .normalize();
+  const p = axis.dot(new THREE.Vector3(d.x, d.y, d.z));
+  const tw = new THREE.Quaternion(
+    axis.x * p,
+    axis.y * p,
+    axis.z * p,
+    d.w,
+  ).normalize();
+  const deg = (2 * Math.acos(Math.min(1, Math.abs(tw.w))) * 180) / Math.PI;
+  return deg;
+};
+
 const bonePos = (n) => pc.hero.bone(n).getWorldPosition(new THREE.Vector3());
 const v3 = (t) => new THREE.Vector3(...t).normalize();
 
 /** Wrist error vs its target, and how well the real hand matches the wanted pose. */
-function measureHand(side, grip, gunQ) {
+function measureHand(side, grip, gunQ, view) {
+  const tpp = view === 'tpp';
   const want = {
     fingers: v3(
-      side === 'r' ? GUN_HOLD.RIGHT_FINGERS : GUN_HOLD.LEFT_FINGERS,
+      side === 'r'
+        ? GUN_HOLD.RIGHT_FINGERS
+        : tpp
+          ? GUN_HOLD.TPP_LEFT_FINGERS
+          : GUN_HOLD.LEFT_FINGERS,
     ).applyQuaternion(gunQ),
     palm: v3(
-      side === 'r' ? GUN_HOLD.RIGHT_PALM : GUN_HOLD.LEFT_PALM,
+      side === 'r'
+        ? GUN_HOLD.RIGHT_PALM
+        : tpp
+          ? GUN_HOLD.TPP_LEFT_PALM
+          : GUN_HOLD.LEFT_PALM,
     ).applyQuaternion(gunQ),
   };
   const target = grip
@@ -124,7 +194,7 @@ function measureHand(side, grip, gunQ) {
 function run(view, weapon, aiming) {
   player.viewMode = view;
   const def = WEAPON_DEFS[weapon];
-  container.position.set(...(aiming ? def.adsOffset : def.idleOffset));
+  holdAt(def, aiming, view);
   for (let f = 0; f < 60; f++) {
     // Controller normally places the camera; mimic its FPV eye so the TPP
     // camera pose doesn't matter here.
@@ -143,8 +213,8 @@ function run(view, weapon, aiming) {
   const gunQ = (
     view === 'fpv' ? rig.root : pc.guns[weapon].group
   ).getWorldQuaternion(new THREE.Quaternion());
-  const R = measureHand('r', grips[0], gunQ);
-  const L = measureHand('l', grips[1], gunQ);
+  const R = measureHand('r', grips[0], gunQ, view);
+  const L = measureHand('l', grips[1], gunQ, view);
   // Fingers wrap the gun (not a fist floating beside it).
   const gripR = grips[0].getWorldPosition(new THREE.Vector3());
   const gripL = grips[1].getWorldPosition(new THREE.Vector3());
@@ -167,7 +237,29 @@ function run(view, weapon, aiming) {
   console.log(
     `   fingers: right mid tip ${(fingers.midR * 100).toFixed(0)}cm from grip, left ${(fingers.midL * 100).toFixed(0)}cm, index ahead of middle ${(fingers.trigger * 100).toFixed(0)}cm`,
   );
-  return { R, L, ahead, fingers };
+  const twist = { r: wristTwistDeg('r'), l: wristTwistDeg('l') };
+  // FPV hip (PUBG): right hand out of view, muzzle near the crosshair.
+  let fpvHip = null;
+  if (view === 'fpv' && !aiming) {
+    const toCam = (v) => v.applyMatrix4(player.camera.matrixWorldInverse);
+    player.camera.updateMatrixWorld(true);
+    const hr = toCam(bonePos('hand_r'));
+    const mz = toCam(rig.muzzleFlash.getWorldPosition(new THREE.Vector3()));
+    const vHalf = (player.camera.fov / 2) * (Math.PI / 180);
+    fpvHip = {
+      rightHandBelowDeg: (Math.atan2(-hr.y, -hr.z) * 180) / Math.PI,
+      rightHandSideDeg: (Math.atan2(hr.x, -hr.z) * 180) / Math.PI,
+      muzzleDownDeg: (Math.atan2(-mz.y, -mz.z) * 180) / Math.PI,
+      halfFovDeg: (vHalf * 180) / Math.PI,
+    };
+    console.log(
+      `   fpv hip: right hand ${fpvHip.rightHandBelowDeg.toFixed(0)}deg below / ${fpvHip.rightHandSideDeg.toFixed(0)}deg right (view half ${fpvHip.halfFovDeg.toFixed(0)}deg), muzzle ${fpvHip.muzzleDownDeg.toFixed(0)}deg below crosshair`,
+    );
+  }
+  console.log(
+    `   wrist twist: right ${twist.r.toFixed(0)}deg, left ${twist.l.toFixed(0)}deg`,
+  );
+  return { R, L, ahead, fingers, twist, fpvHip };
 }
 
 // Facing: at facingYaw 0 the body must look down -Z (same as the camera),
@@ -223,6 +315,51 @@ function run(view, weapon, aiming) {
     );
     assert.ok(toes.dot(toCam) < -0.5, 'camera must be behind the body');
   }
+  // Aiming: the bore converges on the crosshair point; low-ready points down.
+  for (const [w, pitch] of [
+    [0, 0],
+    [0, -0.3],
+    [2, 0.4],
+  ]) {
+    ctl.pitch = pitch;
+    for (const aim of [true, false]) {
+      ctl.aimLock = aim;
+      holdAt(WEAPON_DEFS[w], aim, 'tpp');
+      for (let f = 0; f < 60; f++) {
+        ctl.update(1 / 60);
+        pc2.update(1 / 60, w, false);
+      }
+      scene.updateMatrixWorld(true);
+      const g = pc2.guns[w];
+      const butt = g.butt.clone().applyMatrix4(g.group.matrixWorld);
+      const muzzle = g.muzzle.getWorldPosition(new THREE.Vector3());
+      const bore = muzzle.clone().sub(butt).normalize();
+      const name = WEAPON_DEFS[w].name;
+      if (aim) {
+        const aimPoint = new THREE.Vector3(0, 0, -GUN_HOLD.TPP_CONVERGE_M)
+          .applyQuaternion(ctl.camera.quaternion)
+          .add(ctl.camera.position);
+        const err = THREE.MathUtils.radToDeg(bore.angleTo(aimPoint.sub(butt)));
+        const left = gripOf(g.leftArm).getWorldPosition(new THREE.Vector3());
+        const frac =
+          left.clone().sub(butt).dot(muzzle.clone().sub(butt)) /
+          muzzle.distanceToSquared(butt);
+        console.log(
+          `tpp aim ${name} pitch ${pitch}: muzzle-to-aim-point ${err.toFixed(2)}deg  left grip at ${(frac * 100).toFixed(0)}% butt->muzzle`,
+        );
+        assert.ok(err < 0.5, 'aimed bore must converge on the crosshair');
+        assert.ok(frac > 0.55 && frac < 0.7, 'left hand on the handguard');
+      } else {
+        const down = THREE.MathUtils.radToDeg(Math.asin(bore.y));
+        console.log(
+          `tpp low-ready ${name} pitch ${pitch}: muzzle pitch ${down.toFixed(0)}deg`,
+        );
+        assert.ok(down < -20, 'low-ready muzzle points down');
+      }
+    }
+  }
+  ctl.pitch = 0;
+  ctl.aimLock = false;
   scene.remove(pc2.hero.root);
 }
 
@@ -234,13 +371,13 @@ for (const w of [0]) {
   player.aimLock = false;
   player.isSprinting = true;
   player.velocity.set(0, 0, -8);
-  container.position.set(...WEAPON_DEFS[w].idleOffset);
+  holdAt(WEAPON_DEFS[w], false, 'tpp');
   for (let f = 0; f < 60; f++) pc.update(1 / 60, w, false);
   scene.updateMatrixWorld(true);
   const gun = pc.guns[w];
   const gunQ = gun.group.getWorldQuaternion(new THREE.Quaternion());
-  const R = measureHand('r', gripOf(gun.rightArm), gunQ);
-  const L = measureHand('l', gripOf(gun.leftArm), gunQ);
+  const R = measureHand('r', gripOf(gun.rightArm), gunQ, 'tpp');
+  const L = measureHand('l', gripOf(gun.leftArm), gunQ, 'tpp');
   const leftOff = bonePos('hand_l').distanceTo(
     gripOf(gun.leftArm).getWorldPosition(new THREE.Vector3()),
   );
@@ -270,7 +407,7 @@ player.velocity.set(0, 0, 0);
     pc.hero.bone('Head').getWorldQuaternion(new THREE.Quaternion());
   let faceLocal = null;
   for (const w of [1, 0, 1, 2]) {
-    container.position.set(...WEAPON_DEFS[w].idleOffset);
+    holdAt(WEAPON_DEFS[w], false, 'tpp');
     for (let f = 0; f < 60; f++) pc.update(1 / 60, w, false);
     scene.updateMatrixWorld(true);
     // Pistol has no torso twist: take its head frame as "looking forward".
@@ -289,6 +426,11 @@ player.velocity.set(0, 0, 0);
       .closestPointToPoint(head, true, new THREE.Vector3())
       .distanceTo(head);
     const face = faceLocal.clone().applyQuaternion(headQ()).setY(0).normalize();
+    const elbowDrop = (side) =>
+      bonePos(`upperarm_${side}`).y - bonePos(`lowerarm_${side}`).y;
+    console.log(
+      `   elbows below shoulders: right ${(elbowDrop('r') * 100).toFixed(0)}cm, left ${(elbowDrop('l') * 100).toFixed(0)}cm`,
+    );
     console.log(
       `tpp low-ready ${WEAPON_DEFS[w].name.padEnd(15)} head clearance ${(clearance * 100).toFixed(0)}cm  face fwd ${(-face.z).toFixed(2)}  muzzle y-head ${(muzzle.y - head.y).toFixed(2)}m`,
     );
@@ -343,6 +485,142 @@ player.velocity.set(0, 0, 0);
   player.aimLock = false;
 }
 
+// Third-person aim: the support (left) arm reaches out along the handguard.
+{
+  player.viewMode = 'tpp';
+  player.aimLock = true;
+  holdAt(WEAPON_DEFS[0], true, 'tpp');
+  for (let f = 0; f < 60; f++) pc.update(1 / 60, 0, false);
+  scene.updateMatrixWorld(true);
+  const s = bonePos('upperarm_l');
+  const e = bonePos('lowerarm_l');
+  const h = bonePos('hand_l');
+  const bend = e.clone().sub(s).angleTo(h.clone().sub(e));
+  const flare = e.x - s.x;
+  console.log(
+    `tpp aim AK-47: left elbow bend ${THREE.MathUtils.radToDeg(bend).toFixed(0)}deg, elbow out ${(flare * -100).toFixed(0)}cm`,
+  );
+  player.aimLock = false;
+}
+
+// First-person roll: the long gun rides the hand, like third-person.
+{
+  player.viewMode = 'fpv';
+  player.move = 'roll';
+  player.moveTime = 0;
+  holdAt(WEAPON_DEFS[0], false);
+  for (let f = 0; f < 40; f++) pc.update(1 / 60, 0, false);
+  assert.ok(pc.rollGun && pc.guns[0].group.visible, 'fpv roll: body gun');
+  player.move = 'normal';
+  for (let f = 0; f < 60; f++) pc.update(1 / 60, 0, false);
+  assert.ok(!pc.rollGun, 'fpv roll: back to the viewmodel after');
+}
+
+// First-person special moves: hands stay on the camera-held gun.
+for (const move of ['slide', 'mantle']) {
+  player.viewMode = 'fpv';
+  player.stance = 'stand';
+  player.onGround = true;
+  player.move = move;
+  player.moveTime = 0;
+  holdAt(WEAPON_DEFS[0], false);
+  for (let f = 0; f < 40; f++) pc.update(1 / 60, 0, false);
+  scene.updateMatrixWorld(true);
+  const gunQ = rigs[0].root.getWorldQuaternion(new THREE.Quaternion());
+  const R = measureHand('r', gripOf(rigs[0].rightArm), gunQ);
+  const L = measureHand('l', gripOf(rigs[0].leftArm), gunQ);
+  console.log(
+    `fpv ${move}: wrist err R ${(R.err * 100).toFixed(1)}cm L ${(L.err * 100).toFixed(1)}cm`,
+  );
+  assert.ok(R.err < 0.05 && L.err < 0.05, `fpv ${move}: hands stay on the gun`);
+}
+player.move = 'normal';
+
+// Sideways lean: the spine (pelvis -> neck) must stay upright sideways
+// while walking/sprinting with a twisted rifle stance.
+for (const [label, sprinting, speed] of [
+  ['walk', false, 0.97],
+  ['sprint', true, 8.25],
+]) {
+  player.viewMode = 'tpp';
+  player.stance = 'stand';
+  player.onGround = true;
+  player.aimLock = false;
+  player.isSprinting = sprinting;
+  player.facingYaw = 0;
+  player.velocity.set(0, 0, -speed);
+  holdAt(WEAPON_DEFS[0], false, 'tpp');
+  let worst = 0;
+  const reachL = [];
+  for (let f = 0; f < 120; f++) {
+    pc.update(1 / 60, 0, false);
+    if (f < 30) continue;
+    scene.updateMatrixWorld(true);
+    // Arm stretch: shoulder -> left grip distance should stay steady, not
+    // pump with every stride (gun must move with the torso).
+    reachL.push(
+      bonePos('upperarm_l').distanceTo(
+        gripOf(pc.guns[0].leftArm).getWorldPosition(new THREE.Vector3()),
+      ),
+    );
+    const spine = bonePos('neck_01').sub(bonePos('pelvis')).normalize();
+    // facing 0: right is +X; sideways lean = angle of spine toward +/-X
+    worst = Math.max(worst, Math.abs(Math.asin(spine.x)) * (180 / Math.PI));
+  }
+  const stretch = Math.max(...reachL) - Math.min(...reachL);
+  console.log(
+    `lean ${label}: worst sideways spine lean ${worst.toFixed(1)}deg  left-arm stretch per stride ${(stretch * 100).toFixed(1)}cm`,
+  );
+  assert.ok(worst < 12, `${label}: body must not bend sideways`);
+}
+player.isSprinting = false;
+player.velocity.set(0, 0, 0);
+
+// Scope: mounted on the AK's receiver (not floating, not sunk), axis above bore.
+{
+  const rig = rigs[0];
+  const gun = rig.root.children[0];
+  const scope = gun.children[gun.children.length - 1];
+  rig.root.updateMatrixWorld(true);
+  const toRig = new THREE.Matrix4().copy(rig.root.matrixWorld).invert();
+  const sb = new THREE.Box3().setFromObject(scope).applyMatrix4(toRig);
+  const muzzleY = rig.muzzlePos.y;
+  console.log(
+    `scope: base y ${(sb.min.y * 100).toFixed(1)}cm, axis y ${(rig.scopeSightY * 100).toFixed(1)}cm, bore y ${(muzzleY * 100).toFixed(1)}cm (rig space), length ${((sb.max.z - sb.min.z) * 100).toFixed(0)}cm, width ${((sb.max.x - sb.min.x) * 100).toFixed(1)}cm`,
+  );
+  assert.ok(rig.scopeSightY > muzzleY, 'scope sits above the bore');
+  assert.ok(
+    rigs[1].scopeSightY === undefined && rigs[2].scopeSightY === undefined,
+    'only the AK is scoped',
+  );
+}
+
+// Fists (4th weapon): no gun, jab then cross from erangel-run's clips.
+for (const view of ['fpv', 'tpp']) {
+  player.viewMode = view;
+  player.stance = 'stand';
+  player.onGround = true;
+  player.move = 'normal';
+  player.aimLock = false;
+  player.velocity.set(0, 0, 0);
+  for (let f = 0; f < 30; f++) pc.update(1 / 60, 3, false);
+  const clipName = () => pc.hero.current?.getClip().name;
+  pc.onPunch();
+  pc.update(1 / 60, 3, false);
+  const first = clipName();
+  for (let f = 0; f < 90; f++) pc.update(1 / 60, 3, false); // let the jab finish
+  pc.onPunch();
+  pc.update(1 / 60, 3, false);
+  const second = clipName();
+  const anyGunShown = pc.guns.some((g, i) => i !== 3 && g.group.visible);
+  console.log(
+    `fists ${view}: punch 1 ${first}, punch 2 ${second}, other guns visible ${anyGunShown}`,
+  );
+  assert.equal(first, 'Punch_Jab');
+  assert.equal(second, 'Punch_Cross');
+  assert.ok(!anyGunShown, 'fists: no gun in hand');
+}
+
 const TOLERANCE_M = 0.03;
 for (const view of ['fpv', 'tpp']) {
   for (const w of [0, 2]) {
@@ -355,6 +633,22 @@ for (const view of ['fpv', 'tpp']) {
         r.fingers.trigger > 0.02,
         'right index rests forward on the trigger',
       );
+      assert.ok(
+        r.twist.l < 70 && r.twist.r < 70,
+        'wrists must not be over-twisted (thin wrist)',
+      );
+      if (r.fpvHip && w !== 1) {
+        const h = r.fpvHip;
+        const outOfView =
+          h.rightHandBelowDeg > h.halfFovDeg ||
+          h.rightHandSideDeg > 60 ||
+          h.rightHandBelowDeg > 90;
+        assert.ok(outOfView, 'FPV hip: right hand must be out of view (PUBG)');
+        assert.ok(
+          h.muzzleDownDeg < 20,
+          'FPV hip: muzzle ends near the crosshair',
+        );
+      }
       for (const h of [r.R, r.L]) {
         assert.ok(h.err < TOLERANCE_M, 'wrist must reach its grip target');
         assert.ok(
@@ -379,7 +673,7 @@ const headQ = () =>
 const faceLocal = new THREE.Vector3(0, 0, -1).applyQuaternion(headQ().invert());
 
 player.stance = 'prone';
-container.position.set(...WEAPON_DEFS[0].adsOffset); // prone holds at eye level
+holdAt(WEAPON_DEFS[0], true); // prone holds at eye level
 let minY = Infinity;
 let maxFootY = -Infinity;
 let lowestBone = '';

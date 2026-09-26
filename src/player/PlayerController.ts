@@ -23,10 +23,7 @@ export class PlayerController {
   public camera: THREE.PerspectiveCamera;
   public onGround = false;
   public velocity: THREE.Vector3 = new THREE.Vector3();
-  public stamina: number = PLAYER.MAX_STAMINA;
-  public maxStamina: number = PLAYER.MAX_STAMINA;
   public isSprinting = false;
-  private exhausted = false;
 
   public radius: number = PLAYER.CAPSULE_RADIUS;
   public height: number = STANCES.stand.height;
@@ -220,30 +217,13 @@ export class PlayerController {
     this.eyeOffset += (target.eyeOffset - this.eyeOffset) * stanceK;
 
     const wantsSprint = this.input.isAnyKeyDown(...INPUT.SPRINT);
-    if (this.stamina <= PLAYER.STAMINA_MIN_TO_SPRINT) this.exhausted = true;
-    else if (this.stamina >= PLAYER.STAMINA_RESUME_SPRINT)
-      this.exhausted = false;
-    const hasStamina = !this.exhausted;
     this.isSprinting =
       this.move === 'normal' &&
       wantsSprint &&
-      hasStamina &&
       this.onGround &&
       this.stance === 'stand' &&
       !this.aimLock &&
       !this.sprintBlocked;
-
-    if (this.isSprinting) {
-      this.stamina = Math.max(
-        0,
-        this.stamina - PLAYER.STAMINA_DRAIN_PER_S * delta,
-      );
-    } else {
-      this.stamina = Math.min(
-        this.maxStamina,
-        this.stamina + PLAYER.STAMINA_REGEN_PER_S * delta,
-      );
-    }
 
     this.updateFacing(delta);
     this.updateVelocity(isMoving, delta);

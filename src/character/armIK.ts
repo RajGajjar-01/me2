@@ -10,6 +10,8 @@ const _q = new THREE.Quaternion();
 const _qr = new THREE.Quaternion();
 const _qp = new THREE.Quaternion();
 const _qw = new THREE.Quaternion();
+const _h = new THREE.Vector3();
+const _n = new THREE.Vector3();
 
 /** Apply a world-space rotation to a bone, keeping its hierarchy. */
 export function rotateWorld(bone: THREE.Object3D, q: THREE.Quaternion): void {
@@ -25,14 +27,31 @@ export interface Arm {
   hand: THREE.Object3D;
 }
 
+/** Elbow bend axis in upper-arm space, read from a bent (animated) pose. */
+export function elbowHinge(arm: Arm, minSin: number): THREE.Vector3 | null {
+  arm.upper.getWorldPosition(_a);
+  arm.lower.getWorldPosition(_b);
+  arm.hand.getWorldPosition(_c);
+  _c.sub(_b).normalize();
+  _b.sub(_a).normalize();
+  const h = new THREE.Vector3().crossVectors(_b, _c);
+  if (h.length() < minSin) return null;
+  return h
+    .normalize()
+    .applyQuaternion(arm.upper.getWorldQuaternion(_q).invert());
+}
+
 /**
  * Analytic two-bone IK (law of cosines), solved in world space so it doesn't
- * depend on each bone's local axes. The elbow bends toward `pole`.
+ * depend on each bone's local axes. The elbow bends toward `pole`. With a
+ * `hinge` (elbowHinge), the upper arm rolls so the elbow bends about it
+ * instead of twisting sideways.
  */
 export function solveArm(
   arm: Arm,
   target: THREE.Vector3,
   pole: THREE.Vector3,
+  hinge: THREE.Vector3 | null = null,
 ): void {
   arm.upper.getWorldPosition(_a);
   arm.lower.getWorldPosition(_b);
@@ -60,6 +79,16 @@ export function solveArm(
     _c.copy(_e).sub(_a).normalize(),
   );
   rotateWorld(arm.upper, _q);
+
+  if (hinge && sinA > 1e-3) {
+    // _c = upper-arm axis; wanted bend normal = axis x (reach - elbow).
+    _n.copy(_a).addScaledVector(_d, dist).sub(_e);
+    _n.crossVectors(_c, _n).normalize();
+    _h.copy(hinge).applyQuaternion(arm.upper.getWorldQuaternion(_q));
+    _h.addScaledVector(_c, -_h.dot(_c));
+    const roll = Math.atan2(_c.dot(_b.crossVectors(_h, _n)), _h.dot(_n));
+    rotateWorld(arm.upper, _q.setFromAxisAngle(_c, roll));
+  }
 
   // Forearm: current hand direction -> target (clamped to reach).
   arm.lower.getWorldPosition(_b);
